@@ -6,123 +6,137 @@ import { SampleDataProvider } from '../utils/SampleDataProvider';
 import { ViewMode } from '../model/DiffModels';
 
 @Component
-struct SimpleLine {
+struct UnifiedLine {
   @Prop typeNum: number = 0;
   @Prop content: string = '';
   @Prop linenoA: number = -1;
   @Prop linenoB: number = -1;
-
+  @Prop searchKeyword: string = '';
+  @Prop isSearchMatch: boolean = false;
   build() {
     Row() {
-      Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold)
-        .fontColor(this.getPColor()).width(16).textAlign(TextAlign.Center)
-      Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(12).fontColor('#999999').width(36).textAlign(TextAlign.End)
-      Text(this.content).fontSize(13).fontFamily('monospace').fontColor('#1C1C1C')
-        .maxLines(1).textOverflow({ overflow: TextOverflow.None }).padding({ left: 8, right: 8 })
-    }
-    .width('100%').height(24).backgroundColor(this.getBg())
+      Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
+      Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
+      Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.getPColor()).width(14).textAlign(TextAlign.Center)
+      Text(this.content).fontSize(12).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
+    }.width('100%').height(22).backgroundColor(this.isSearchMatch ? '#FFD54F' : this.getBg())
   }
-
-  private getPrefix(): string {
-    if (this.typeNum === 1) return '+';
-    if (this.typeNum === 2) return '-';
-    if (this.typeNum === 3) return '~';
-    return ' ';
-  }
-  private getPColor(): string {
-    if (this.typeNum === 1) return '#1A7F37';
-    if (this.typeNum === 2) return '#BE2E2E';
-    if (this.typeNum === 3) return '#D4A017';
-    return '#999999';
-  }
-  private getBg(): string {
-    if (this.typeNum === 1) return '#E6FFEC';
-    if (this.typeNum === 2) return '#FFEBE9';
-    if (this.typeNum === 3) return '#FFF3D4';
-    return '#FFFFFF';
-  }
+  private getPrefix(): string { if (this.typeNum === 1) return '+'; if (this.typeNum === 2) return '-'; if (this.typeNum === 3) return '~'; return ' '; }
+  private getPColor(): string { if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC'; }
+  private getBg(): string { if (this.typeNum === 1) return '#E6FFEC'; if (this.typeNum === 2) return '#FFEBE9'; if (this.typeNum === 3) return '#FFF3D4'; return '#FFFFFF'; }
 }
+
+@Component
+struct SideBySideRow {
+  @Prop leftType: number = 0; @Prop leftContent: string = ''; @Prop leftLineNo: number = -1;
+  @Prop rightType: number = 0; @Prop rightContent: string = ''; @Prop rightLineNo: number = -1;
+  build() {
+    Row() {
+      Row() {
+        Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
+        Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
+      }.width('50%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
+      Row() {
+        Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
+        Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
+      }.width('50%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
+    }.width('100%').height(22)
+  }
+  private getBg(type: number): string { if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF'; }
+}
+
+interface SbsPair { leftType: number; leftContent: string; leftLineNo: number; rightType: number; rightContent: string; rightLineNo: number; }
 
 @Entry
 @Component
 struct DiffEditorPage {
-  @State textA: string = '';
-  @State textB: string = '';
+  @State textA: string = ''; @State textB: string = '';
   @State viewMode: ViewMode = ViewMode.UNIFIED;
-  @State inputVisible: boolean = true;
-  @State navIdx: number = 0;
-  @State added: number = 0;
-  @State deleted: number = 0;
-  @State modified: number = 0;
-  @State similarity: number = 0;
-  @State blockCnt: number = 0;
-  @State hasResult: boolean = false;
-  @State lineTypes: number[] = [];
-  @State lineContents: string[] = [];
-  @State lineNosA: number[] = [];
-  @State lineNosB: number[] = [];
+  @State inputVisible: boolean = true; @State navIdx: number = 0;
+  @State added: number = 0; @State deleted: number = 0; @State modified: number = 0;
+  @State similarity: number = 0; @State blockCnt: number = 0; @State hasResult: boolean = false;
+  @State lineTypes: number[] = []; @State lineContents: string[] = [];
+  @State lineNosA: number[] = []; @State lineNosB: number[] = [];
+  @State sbsPairs: SbsPair[] = [];
+  @State searchActive: boolean = false; @State searchKeyword: string = '';
+  @State searchMatches: number[] = []; @State searchIdx: number = 0;
 
-  aboutToAppear(): void {
-    this.textA = SampleDataProvider.getSampleA();
-    this.textB = SampleDataProvider.getSampleB();
-  }
+  aboutToAppear(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); }
 
   build() {
     Column() {
       DiffToolbar({
-        viewMode: this.viewMode, isComputing: false,
+        viewMode: this.viewMode, isComputing: false, searchActive: false,
         onRunDiff: () => { this.doDiff(); },
         onSwitchView: (m: ViewMode) => { this.viewMode = m; },
         onPasteSample: () => { this.doPaste(); },
-        onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); }
-      }).width('100%').height(48)
-
+        onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
+        onToggleSearch: () => { this.searchActive = !this.searchActive; this.searchKeyword = ''; this.searchMatches = []; },
+        onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); }
+      }).width('100%').height(44)
       Divider().height(1).color('#E0E0E0')
+
+      if (this.searchActive && this.hasResult) {
+        Row() {
+          Button({ type: ButtonType.Circle }) { Text('×').fontSize(14).fontColor('#666666') }
+          .width(28).height(28).backgroundColor(Color.Transparent)
+          .onClick(() => { this.searchActive = false; this.searchKeyword = ''; })
+          TextInput({ text: this.searchKeyword, placeholder: '搜索...' })
+            .fontSize(12).height(28).layoutWeight(1)
+            .backgroundColor('#FFFFFF').borderRadius(6).padding({ left: 6, right: 6 })
+            .onChange((v: string) => { this.searchKeyword = v; this.doSearch(); })
+          Button({ type: ButtonType.Circle }) { Text('▲').fontSize(12).fontColor('#666666') }
+          .width(24).height(24).backgroundColor(Color.Transparent)
+          .onClick(() => { if (this.searchMatches.length > 0) { this.searchIdx = (this.searchIdx - 1 + this.searchMatches.length) % this.searchMatches.length; } })
+          Button({ type: ButtonType.Circle }) { Text('▼').fontSize(12).fontColor('#666666') }
+          .width(24).height(24).backgroundColor(Color.Transparent)
+          .onClick(() => { if (this.searchMatches.length > 0) { this.searchIdx = (this.searchIdx + 1) % this.searchMatches.length; } })
+          if (this.searchMatches.length > 0) {
+            Text(`${this.searchIdx + 1}/${this.searchMatches.length}`).fontSize(11).fontColor('#999999')
+          }
+        }
+        .width('100%').height(36).padding({ left: 4, right: 4 })
+        .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
+      }
 
       if (this.hasResult) {
         Row() {
-          Text(`+${this.added}`).fontSize(13).fontColor('#1A7F37').fontWeight(FontWeight.Medium).margin({ right: 12 })
-          Text(`-${this.deleted}`).fontSize(13).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ right: 12 })
-          Text(`~${this.modified}`).fontSize(13).fontColor('#D4A017').fontWeight(FontWeight.Medium).margin({ right: 16 })
-          Text(`相似度 ${this.similarity}%`).fontSize(13).fontColor('#666666').layoutWeight(1)
-          Text(`${this.blockCnt} 处差异`).fontSize(13).fontColor('#666666')
-        }
-        .width('100%').height(36).padding({ left: 16, right: 16 }).backgroundColor('#FFFFFF')
-        .border({ width: { bottom: 1 }, color: '#E0E0E0' })
+          Text(`+${this.added}`).fontSize(11).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
+          Text(` -${this.deleted}`).fontSize(11).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
+          Text(` ~${this.modified}`).fontSize(11).fontColor('#D4A017').fontWeight(FontWeight.Medium)
+          Text(`  ${this.similarity}%`).fontSize(11).fontColor('#999999').layoutWeight(1)
+          Text(`${this.blockCnt}块`).fontSize(11).fontColor('#999999')
+        }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
       }
-
-      if (this.inputVisible) {
-        InputPanel({ textA: $textA, textB: $textB }).width('100%').height(180)
-      }
-
-      if (this.hasResult && this.lineTypes.length > 0) {
+      if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
+      if (this.hasResult) {
         Scroll() {
-          Column() {
-            ForEach(this.lineTypes, (t: number, i: number) => {
-              SimpleLine({
-                typeNum: t,
-                content: this.lineContents[i],
-                linenoA: this.lineNosA[i],
-                linenoB: this.lineNosB[i]
-              })
-            }, (t: number, i: number) => `line_${i}`)
+          if (this.viewMode === ViewMode.UNIFIED) {
+            Column() {
+              ForEach(this.lineTypes, (t: number, i: number) => {
+                UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
+                  searchKeyword: this.searchKeyword,
+                  isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
+                })
+              }, (t: number, i: number) => `u_${i}`)
+            }
+          } else {
+            Column() {
+              ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+                SideBySideRow({ leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo, rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo })
+              }, (p: SbsPair, i: number) => `s_${i}`)
+            }
           }
-        }
-        .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+        }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
       } else {
         Column() {
-          Text('AegisDiff').fontSize(24).fontColor('#333333')
-          Text('点击「执行对比」查看差异').fontSize(14).fontColor('#999999').margin({ top: 8 })
-        }
-        .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+          Text('AegisDiff').fontSize(22).fontColor('#333333')
+          Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       }
-
       Divider().height(1).color('#E0E0E0')
-
       DiffNavigator({
-        totalBlocks: this.blockCnt,
-        currentIndex: this.navIdx,
-        inputPanelVisible: this.inputVisible,
+        totalBlocks: this.blockCnt, currentIndex: this.navIdx, inputPanelVisible: this.inputVisible,
         onNavigateTo: (i: number) => { this.navIdx = i; },
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
@@ -130,38 +144,42 @@ struct DiffEditorPage {
   }
 
   private doDiff(): void {
-    const a = this.textA.split('\n');
-    const b = this.textB.split('\n');
-    const types: number[] = [];
-    const contents: string[] = [];
-    const nosA: number[] = [];
-    const nosB: number[] = [];
+    const a = this.textA.split('\n'); const b = this.textB.split('\n');
+    const types: number[] = []; const contents: string[] = []; const nosA: number[] = []; const nosB: number[] = [];
+    const pairs: SbsPair[] = [];
     let _added = 0, _deleted = 0, _mod = 0, _unch = 0, blk = 0, inBlk = false;
     const max = Math.max(a.length, b.length);
     for (let i = 0; i < max; i++) {
-      const aEnd = i >= a.length, bEnd = i >= b.length;
-      const va = aEnd ? '' : a[i];
-      const vb = bEnd ? '' : b[i];
+      const aEnd = i >= a.length, bEnd = i >= b.length; const va = aEnd ? '' : a[i]; const vb = bEnd ? '' : b[i];
       let t: number;
       if (!aEnd && !bEnd && va === vb) { t = 0; _unch++; inBlk = false; }
       else if (!aEnd && !bEnd) { t = 3; _mod++; if (!inBlk) { blk++; inBlk = true; } }
       else if (!aEnd) { t = 2; _deleted++; if (!inBlk) { blk++; inBlk = true; } }
       else { t = 1; _added++; if (!inBlk) { blk++; inBlk = true; } }
-      types.push(t);
-      contents.push(aEnd ? vb : va);
-      nosA.push(aEnd ? -1 : i + 1);
-      nosB.push(bEnd ? -1 : i + 1);
+      types.push(t); contents.push(aEnd ? vb : va);
+      nosA.push(aEnd ? -1 : i + 1); nosB.push(bEnd ? -1 : i + 1);
+      pairs.push({
+        leftType: aEnd ? 0 : (bEnd ? 2 : (va === vb ? 0 : 3)), leftContent: aEnd ? '' : va, leftLineNo: aEnd ? -1 : i + 1,
+        rightType: bEnd ? 0 : (aEnd ? 1 : (va === vb ? 0 : 3)), rightContent: bEnd ? '' : vb, rightLineNo: bEnd ? -1 : i + 1
+      });
     }
-    this.lineTypes = types; this.lineContents = contents;
-    this.lineNosA = nosA; this.lineNosB = nosB;
+    this.lineTypes = types; this.lineContents = contents; this.lineNosA = nosA; this.lineNosB = nosB; this.sbsPairs = pairs;
     this.added = _added; this.deleted = _deleted; this.modified = _mod;
     const total = _unch + _added + _deleted + _mod;
     this.similarity = total > 0 ? Math.round(_unch / total * 1000) / 10 : 100;
     this.blockCnt = blk; this.hasResult = true;
+    this.searchMatches = []; this.searchIdx = 0;
   }
 
-  private doPaste(): void {
-    this.textA = SampleDataProvider.getSampleA();
-    this.textB = SampleDataProvider.getSampleB();
+  private doSearch(): void {
+    if (this.searchKeyword.length === 0) { this.searchMatches = []; return; }
+    const kw = this.searchKeyword.toLowerCase();
+    this.searchMatches = [];
+    for (let i = 0; i < this.lineContents.length; i++) {
+      if (this.lineContents[i].toLowerCase().includes(kw)) this.searchMatches.push(i);
+    }
+    this.searchIdx = 0;
   }
+
+  private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); }
 }

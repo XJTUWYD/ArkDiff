@@ -1,12 +1,26 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/mac/.ohos/config/default_codecompare_5URMYxLPDqJXuFQIenmFZ1AMXZMmEtFkKtm7AgO1G5M=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001AD9C8C4985A99A7641D476147C92BFC41F6CA8F027CA2A77594F259952F5BD7121CF4FA59B0FE",
+          "profile": "/Users/mac/.ohos/config/default_codecompare_5URMYxLPDqJXuFQIenmFZ1AMXZMmEtFkKtm7AgO1G5M=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/mac/.ohos/config/default_codecompare_5URMYxLPDqJXuFQIenmFZ1AMXZMmEtFkKtm7AgO1G5M=.p12",
+          "storePassword": "0000001A69285312FFB8C62DF507E7C29FAC28685C49A036AC2F5786332F02D7FD8C015DD1BF15AD43A9"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
         "signingConfig": "default",
-        "targetSdkVersion": "6.1.1(24)",
-        "compatibleSdkVersion": "6.1.1(24)",
+        "targetSdkVersion": "5.1.0(18)",
+        "compatibleSdkVersion": "5.1.0(18)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {

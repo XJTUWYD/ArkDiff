@@ -2,6 +2,11 @@
   "src": [
     "pages/SplashPage",
     "pages/DiffEditorPage",
-    "pages/SettingsPage"
-  ]
+    "pages/SettingsPage",
+    "pages/MergePage"
+  ],
+  "window": {
+    "designWidth": 360,
+    "autoDesignWidth": true
+  }
 }
