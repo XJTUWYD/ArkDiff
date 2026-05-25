@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "AegisDiff - 代码差异对比工具"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "AegisDiff 主入口能力"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "AegisDiff"
+    },
+    {
+      "name": "read_media_permission_reason",
+      "value": "用于从设备中选择代码文件进行差异对比"
+    }
+  ]
+}
