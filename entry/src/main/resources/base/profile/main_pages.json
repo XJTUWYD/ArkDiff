@@ -3,7 +3,8 @@
     "pages/SplashPage",
     "pages/DiffEditorPage",
     "pages/SettingsPage",
-    "pages/MergePage"
+    "pages/MergePage",
+    "pages/FolderDiffPage"
   ],
   "window": {
     "designWidth": 360,

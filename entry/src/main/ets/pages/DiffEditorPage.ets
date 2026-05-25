@@ -1,4 +1,6 @@
 import { router } from '@kit.ArkUI';
+import { picker } from '@kit.CoreFileKit';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
 import { InputPanel } from '../components/InputPanel';
@@ -30,16 +32,35 @@ struct UnifiedLine {
 struct SideBySideRow {
   @Prop leftType: number = 0; @Prop leftContent: string = ''; @Prop leftLineNo: number = -1;
   @Prop rightType: number = 0; @Prop rightContent: string = ''; @Prop rightLineNo: number = -1;
+  @Prop isSearchMatch: boolean = false;
+  onSyncToRight?: () => void;
+  onSyncToLeft?: () => void;
   build() {
     Row() {
       Row() {
         Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
         Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('50%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
+      }.width('46%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
+
+      Column() {
+        if (this.leftType !== 0 || this.rightType !== 0) {
+          if (this.leftType === 2) {
+            Button({ type: ButtonType.Circle }) { Text('→').fontSize(10).fontColor('#1A7F37') }
+            .width(22).height(20).backgroundColor(Color.Transparent)
+            .onClick(() => { if (this.onSyncToRight) this.onSyncToRight(); })
+          }
+          if (this.rightType === 1) {
+            Button({ type: ButtonType.Circle }) { Text('←').fontSize(10).fontColor('#BE2E2E') }
+            .width(22).height(20).backgroundColor(Color.Transparent)
+            .onClick(() => { if (this.onSyncToLeft) this.onSyncToLeft(); })
+          }
+        }
+      }.width(26).justifyContent(FlexAlign.Center)
+
       Row() {
         Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
         Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('50%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
+      }.width('46%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
     }.width('100%').height(22)
   }
   private getBg(type: number): string { if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF'; }
@@ -60,6 +81,7 @@ struct DiffEditorPage {
   @State sbsPairs: SbsPair[] = [];
   @State searchActive: boolean = false; @State searchKeyword: string = '';
   @State searchMatches: number[] = []; @State searchIdx: number = 0;
+  @State fileAName: string = ''; @State fileBName: string = '';
 
   aboutToAppear(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); }
 
@@ -75,6 +97,28 @@ struct DiffEditorPage {
         onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); }
       }).width('100%').height(44)
       Divider().height(1).color('#E0E0E0')
+
+      Row() {
+        Button('📂 选择文件A').fontSize(11).height(28).type(ButtonType.Capsule)
+          .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
+          .onClick(() => { this.pickFileA(); })
+        Button('📄 选择文件B').fontSize(11).height(28).type(ButtonType.Capsule)
+          .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+          .onClick(() => { this.pickFileB(); })
+        Button('📁 对比').fontSize(11).height(28).type(ButtonType.Capsule)
+          .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+          .onClick(() => { router.pushUrl({ url: 'pages/FolderDiffPage' }); })
+        if (this.fileAName !== '' || this.fileBName !== '') {
+          Text(this.fileAName !== '' ? `A:${this.fileAName}` : '')
+            .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
+          Text(this.fileBName !== '' ? `B:${this.fileBName}` : '')
+            .fontSize(10).fontColor('#BE2E2E').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
+        } else {
+          Blank().layoutWeight(1)
+        }
+      }
+      .width('100%').height(36).padding({ left: 8, right: 8 })
+      .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
 
       if (this.searchActive && this.hasResult) {
         Row() {
@@ -123,7 +167,13 @@ struct DiffEditorPage {
           } else {
             Column() {
               ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-                SideBySideRow({ leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo, rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo })
+                SideBySideRow({
+                  leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+                  rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+                  isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
+                  onSyncToRight: () => { this.syncToRight(p); },
+                  onSyncToLeft: () => { this.syncToLeft(p); }
+                })
               }, (p: SbsPair, i: number) => `s_${i}`)
             }
           }
@@ -181,5 +231,79 @@ struct DiffEditorPage {
     this.searchIdx = 0;
   }
 
-  private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); }
+  private syncToRight(p: SbsPair): void {
+    let arrA = this.textA.split('\n');
+    let arrB = this.textB.split('\n');
+    if (p.leftLineNo > 0 && p.leftLineNo <= arrA.length) {
+      if (p.rightLineNo > 0 && p.rightLineNo <= arrB.length) {
+        arrB[p.rightLineNo - 1] = arrA[p.leftLineNo - 1];
+      } else {
+        arrB.splice(Math.max(0, p.leftLineNo - 1), 0, arrA[p.leftLineNo - 1]);
+      }
+      this.textB = arrB.join('\n');
+      this.doDiff();
+    }
+  }
+
+  private syncToLeft(p: SbsPair): void {
+    let arrA = this.textA.split('\n');
+    let arrB = this.textB.split('\n');
+    if (p.rightLineNo > 0 && p.rightLineNo <= arrB.length) {
+      if (p.leftLineNo > 0 && p.leftLineNo <= arrA.length) {
+        arrA[p.leftLineNo - 1] = arrB[p.rightLineNo - 1];
+      } else {
+        arrA.splice(Math.max(0, p.rightLineNo - 1), 0, arrB[p.rightLineNo - 1]);
+      }
+      this.textA = arrA.join('\n');
+      this.doDiff();
+    }
+  }
+
+  private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); this.fileAName = ''; this.fileBName = ''; }
+
+  private pickFileA(): void {
+    try {
+      let context = getContext(this);
+      const opts = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      const docPicker = new picker.DocumentViewPicker(context);
+      docPicker.select(opts).then((uris: string[]) => {
+        if (uris.length > 0) {
+          let file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
+          let stat = fs.statSync(uris[0]);
+          this.fileAName = uris[0].split('/').pop() || '';
+          let buf = new ArrayBuffer(stat.size);
+          let readLen = fs.readSync(file.fd, buf);
+          let arr = new Uint8Array(buf, 0, readLen);
+          let content = '';
+          for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
+          this.textA = content;
+          fs.closeSync(file);
+        }
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  private pickFileB(): void {
+    try {
+      let context = getContext(this);
+      const opts = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      const docPicker = new picker.DocumentViewPicker(context);
+      docPicker.select(opts).then((uris: string[]) => {
+        if (uris.length > 0) {
+          let file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
+          let stat = fs.statSync(uris[0]);
+          this.fileBName = uris[0].split('/').pop() || '';
+          let buf = new ArrayBuffer(stat.size);
+          let readLen = fs.readSync(file.fd, buf);
+          let arr = new Uint8Array(buf, 0, readLen);
+          let content = '';
+          for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
+          this.textB = content;
+          fs.closeSync(file);
+        }
+      });
+    } catch (e) { /* ignore */ }
+  }
 }
