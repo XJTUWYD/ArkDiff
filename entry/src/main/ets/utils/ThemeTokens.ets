@@ -64,6 +64,28 @@ export const DarkColors = {
   toolbarBackground: '#1A1A1A',
 } as const;
 
+// ==================== Diff 着色 Tokens（Monokai 模式） ====================
+
+export const MonokaiColors = {
+  diffAddedBackground: '#232D1A',
+  diffAddedGutterBackground: '#1A2412',
+  diffAddedForeground: '#A6E22E',
+  diffDeletedBackground: '#351B1B',
+  diffDeletedGutterBackground: '#241212',
+  diffDeletedForeground: '#F92672',
+  diffModifiedBackground: '#33301A',
+  diffModifiedGutterBackground: '#242012',
+  diffUnchangedBackground: '#272822',
+  pageBackground: '#1E1F1C',
+  surfaceBackground: '#272822',
+  textPrimary: '#F8F8F2',
+  textSecondary: '#75715E',
+  gutterTextColor: '#75715E',
+  dividerColor: '#3E3D32',
+  highlightFlashColor: '#49483E',
+  toolbarBackground: '#272822',
+} as const;
+
 // ==================== 尺寸常量 ====================
 
 /** 代码行字体大小（vp） */

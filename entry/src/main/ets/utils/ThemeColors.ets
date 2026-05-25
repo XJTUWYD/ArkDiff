@@ -1,11 +1,12 @@
 /**
  * AegisDiff — 颜色主题系统
- * 单例模式，通过 AppStorage 监听 colorMode，返回对应 Light/Dark 颜色 Tokens
+ * 单例模式，支持 Light / Dark / Monokai 三种主题
  */
 import { AppSettings } from '../model/DiffModels';
 import {
   LightColors,
   DarkColors,
+  MonokaiColors,
 } from './ThemeTokens';
 
 interface ThemeColorMap {
@@ -31,6 +32,7 @@ interface ThemeColorMap {
 export class ThemeColors {
   private static instance: ThemeColors | null = null;
   private _darkMode: boolean = false;
+  private _isMonokai: boolean = false;
 
   static getInstance(): ThemeColors {
     if (!ThemeColors.instance) {
@@ -42,6 +44,13 @@ export class ThemeColors {
   /** 设置深色模式 */
   setDarkMode(isDark: boolean): void {
     this._darkMode = isDark;
+    this._isMonokai = false;
+  }
+
+  /** 设置 Monokai 主题 */
+  setMonokai(enable: boolean): void {
+    this._isMonokai = enable;
+    this._darkMode = false;
   }
 
   /** 当前是否为深色模式 */
@@ -49,8 +58,14 @@ export class ThemeColors {
     return this._darkMode;
   }
 
+  /** 当前是否为 Monokai 主题 */
+  get isMonokai(): boolean {
+    return this._isMonokai;
+  }
+
   /** 获取当前主题颜色 Tokens */
   get colors(): ThemeColorMap {
+    if (this._isMonokai) return MonokaiColors;
     return this._darkMode ? DarkColors : LightColors;
   }
 

@@ -9,6 +9,7 @@ struct SettingsPage {
   @StorageLink('colorMode') colorMode: string = 'auto';
   @StorageLink('codeFontSize') codeFontSize: number = 14;
   @StorageLink('ignoreBlankLines') ignoreBlankLines: boolean = false;
+  @StorageLink('currentBreakpoint') currentBp: string = 'sm';
 
   build() {
     Column() {
@@ -44,6 +45,11 @@ struct SettingsPage {
                 .fontColor(this.colorMode === 'auto' ? Color.White : '#666666')
                 .borderRadius(10).padding({ left: 10, right: 10 }).margin({ left: 6 })
                 .onClick(() => { this.colorMode = 'auto'; })
+              Button('莫').fontSize(11).height(28).type(ButtonType.Capsule)
+                .backgroundColor(this.colorMode === 'monokai' ? '#A6E22E' : '#E8E8E8')
+                .fontColor(this.colorMode === 'monokai' ? '#272822' : '#666666')
+                .borderRadius(10).padding({ left: 10, right: 10 }).margin({ left: 6 })
+                .onClick(() => { this.colorMode = 'monokai'; })
             }
           }
           .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
@@ -74,7 +80,8 @@ struct SettingsPage {
           .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
         }
       }
-      .width('100%').layoutWeight(1).backgroundColor('#F5F5F5')
+      .width(this.isLargeScreen() ? 480 : '100%')
+      .layoutWeight(1).backgroundColor('#F5F5F5')
 
       Column() {
         Text('AegisDiff v1.1.0').fontSize(12).fontColor('#AAAAAA')
@@ -83,5 +90,8 @@ struct SettingsPage {
       .width('100%').padding({ top: 12, bottom: 20 })
     }
     .width('100%').height('100%').backgroundColor('#F5F5F5')
+    .alignItems(this.isLargeScreen() ? HorizontalAlign.Center : HorizontalAlign.Start)
   }
+
+  private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
 }

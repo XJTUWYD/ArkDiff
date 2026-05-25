@@ -15,42 +15,49 @@ struct UnifiedLine {
   @Prop linenoB: number = -1;
   @Prop searchKeyword: string = '';
   @Prop isSearchMatch: boolean = false;
+  @Prop isMonokai: boolean = false;
   build() {
     Row() {
-      Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
-      Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
+      Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
+      Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
       Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.getPColor()).width(14).textAlign(TextAlign.Center)
-      Text(this.content).fontSize(12).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
-    }.width('100%').height(22).backgroundColor(this.isSearchMatch ? '#FFD54F' : this.getBg())
+      Text(this.content).fontSize(12).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
+    }.width('100%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg())
   }
   private getPrefix(): string { if (this.typeNum === 1) return '+'; if (this.typeNum === 2) return '-'; if (this.typeNum === 3) return '~'; return ' '; }
-  private getPColor(): string { if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC'; }
-  private getBg(): string { if (this.typeNum === 1) return '#E6FFEC'; if (this.typeNum === 2) return '#FFEBE9'; if (this.typeNum === 3) return '#FFF3D4'; return '#FFFFFF'; }
+  private getPColor(): string {
+    if (this.isMonokai) { if (this.typeNum === 1) return '#A6E22E'; if (this.typeNum === 2) return '#F92672'; if (this.typeNum === 3) return '#E6DB74'; return '#75715E'; }
+    if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC';
+  }
+  private getBg(): string {
+    if (this.isMonokai) { if (this.typeNum === 1) return '#232D1A'; if (this.typeNum === 2) return '#351B1B'; if (this.typeNum === 3) return '#33301A'; return '#272822'; }
+    if (this.typeNum === 1) return '#E6FFEC'; if (this.typeNum === 2) return '#FFEBE9'; if (this.typeNum === 3) return '#FFF3D4'; return '#FFFFFF';
+  }
 }
 
 @Component
 struct SideBySideRow {
   @Prop leftType: number = 0; @Prop leftContent: string = ''; @Prop leftLineNo: number = -1;
   @Prop rightType: number = 0; @Prop rightContent: string = ''; @Prop rightLineNo: number = -1;
-  @Prop isSearchMatch: boolean = false;
+  @Prop isSearchMatch: boolean = false; @Prop isMonokai: boolean = false;
   onSyncToRight?: () => void;
   onSyncToLeft?: () => void;
   build() {
     Row() {
       Row() {
-        Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
-        Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
+        Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
+        Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
+      }.width('46%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg(this.leftType)).padding({ right: 1 })
 
       Column() {
         if (this.leftType !== 0 || this.rightType !== 0) {
           if (this.leftType === 2) {
-            Button({ type: ButtonType.Circle }) { Text('→').fontSize(10).fontColor('#1A7F37') }
+            Button({ type: ButtonType.Circle }) { Text('→').fontSize(10).fontColor(this.isMonokai ? '#A6E22E' : '#1A7F37') }
             .width(22).height(20).backgroundColor(Color.Transparent)
             .onClick(() => { if (this.onSyncToRight) this.onSyncToRight(); })
           }
           if (this.rightType === 1) {
-            Button({ type: ButtonType.Circle }) { Text('←').fontSize(10).fontColor('#BE2E2E') }
+            Button({ type: ButtonType.Circle }) { Text('←').fontSize(10).fontColor(this.isMonokai ? '#F92672' : '#BE2E2E') }
             .width(22).height(20).backgroundColor(Color.Transparent)
             .onClick(() => { if (this.onSyncToLeft) this.onSyncToLeft(); })
           }
@@ -58,12 +65,15 @@ struct SideBySideRow {
       }.width(26).justifyContent(FlexAlign.Center)
 
       Row() {
-        Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor('#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
-        Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor('#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
+        Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
+        Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
+      }.width('46%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg(this.rightType)).padding({ left: 1 })
     }.width('100%').height(22)
   }
-  private getBg(type: number): string { if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF'; }
+  private getBg(type: number): string {
+    if (this.isMonokai) { if (type === 1) return '#232D1A'; if (type === 2) return '#351B1B'; if (type === 3) return '#33301A'; return '#272822'; }
+    if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF';
+  }
 }
 
 interface SbsPair { leftType: number; leftContent: string; leftLineNo: number; rightType: number; rightContent: string; rightLineNo: number; }
@@ -71,6 +81,8 @@ interface SbsPair { leftType: number; leftContent: string; leftLineNo: number; r
 @Entry
 @Component
 struct DiffEditorPage {
+  @StorageLink('colorMode') colorMode: string = 'auto';
+  @StorageLink('currentBreakpoint') currentBp: string = 'sm';
   @State textA: string = ''; @State textB: string = '';
   @State viewMode: ViewMode = ViewMode.UNIFIED;
   @State inputVisible: boolean = true; @State navIdx: number = 0;
@@ -152,37 +164,80 @@ struct DiffEditorPage {
           Text(`${this.blockCnt}块`).fontSize(11).fontColor('#999999')
         }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
       }
-      if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
-      if (this.hasResult) {
-        Scroll() {
-          if (this.viewMode === ViewMode.UNIFIED) {
-            Column() {
-              ForEach(this.lineTypes, (t: number, i: number) => {
-                UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
-                  searchKeyword: this.searchKeyword,
-                  isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
-                })
-              }, (t: number, i: number) => `u_${i}`)
-            }
+      if (this.isLargeScreen()) {
+        // 桌面端：输入面板与 Diff 结果左右分栏
+        Row() {
+          if (this.inputVisible) {
+            InputPanel({ textA: $textA, textB: $textB }).width('42%').height('100%')
+          }
+          if (this.hasResult) {
+            Scroll() {
+              if (this.viewMode === ViewMode.UNIFIED) {
+                Column() {
+                  ForEach(this.lineTypes, (t: number, i: number) => {
+                    UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
+                      searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
+                      isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
+                    })
+                  }, (t: number, i: number) => `u_${i}`)
+                }
+              } else {
+                Column() {
+                  ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+                    SideBySideRow({
+                      leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+                      rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+                      isMonokai: this.colorMode === 'monokai',
+                      isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
+                      onSyncToRight: () => { this.syncToRight(p); },
+                      onSyncToLeft: () => { this.syncToLeft(p); }
+                    })
+                  }, (p: SbsPair, i: number) => `s_${i}`)
+                }
+              }
+            }.width(this.inputVisible ? '58%' : '100%').height('100%').scrollBar(BarState.Auto)
           } else {
             Column() {
-              ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-                SideBySideRow({
-                  leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-                  rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-                  isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
-                  onSyncToRight: () => { this.syncToRight(p); },
-                  onSyncToLeft: () => { this.syncToLeft(p); }
-                })
-              }, (p: SbsPair, i: number) => `s_${i}`)
-            }
+              Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
+              Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+            }.width('100%').height('100%').justifyContent(FlexAlign.Center)
           }
-        }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+        }.width('100%').layoutWeight(1)
       } else {
-        Column() {
-          Text('AegisDiff').fontSize(22).fontColor('#333333')
-          Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
-        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        // 手机/平板：保持原有纵向堆叠布局
+        if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
+        if (this.hasResult) {
+          Scroll() {
+            if (this.viewMode === ViewMode.UNIFIED) {
+              Column() {
+                ForEach(this.lineTypes, (t: number, i: number) => {
+                  UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
+                    searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
+                    isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
+                  })
+                }, (t: number, i: number) => `u_${i}`)
+              }
+            } else {
+              Column() {
+                ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+                  SideBySideRow({
+                    leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+                    rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+                    isMonokai: this.colorMode === 'monokai',
+                    isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
+                    onSyncToRight: () => { this.syncToRight(p); },
+                    onSyncToLeft: () => { this.syncToLeft(p); }
+                  })
+                }, (p: SbsPair, i: number) => `s_${i}`)
+              }
+            }
+          }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+        } else {
+          Column() {
+            Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
+            Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+          }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        }
       }
       Divider().height(1).color('#E0E0E0')
       DiffNavigator({
@@ -190,8 +245,10 @@ struct DiffEditorPage {
         onNavigateTo: (i: number) => { this.navIdx = i; },
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
-    }.width('100%').height('100%').backgroundColor('#F5F5F5')
+    }.width('100%').height('100%').backgroundColor(this.colorMode === 'monokai' ? '#1E1F1C' : '#F5F5F5')
   }
+
+  private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
 
   private doDiff(): void {
     const a = this.textA.split('\n'); const b = this.textB.split('\n');
