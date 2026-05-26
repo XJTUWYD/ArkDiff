@@ -14,6 +14,7 @@ export struct DiffToolbar {
   onOpenSettings: () => void = () => {};
   onToggleSearch: () => void = () => {};
   onOpenMerge: () => void = () => {};
+  onExport: () => void = () => {};
 
   build() {
     Row() {
@@ -62,6 +63,12 @@ export struct DiffToolbar {
       }
       .width(28).height(28).backgroundColor(Color.Transparent)
       .onClick(() => { this.onOpenMerge(); })
+
+      Button({ type: ButtonType.Circle }) {
+        Text('⇓').fontSize(13).fontColor('#007AFF')
+      }
+      .width(28).height(28).backgroundColor(Color.Transparent)
+      .onClick(() => { this.onExport(); })
 
       Button({ type: ButtonType.Circle }) {
         Text('⚙').fontSize(14).fontColor('#666666')

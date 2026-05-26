@@ -2,32 +2,12 @@
  * AegisDiff — 颜色主题系统
  * 单例模式，支持 Light / Dark / Monokai 三种主题
  */
-import { AppSettings } from '../model/DiffModels';
 import {
-  LightColors,
-  DarkColors,
-  MonokaiColors,
+  ThemeColorMap,
+  getLightColors,
+  getDarkColors,
+  getMonokaiColors,
 } from './ThemeTokens';
-
-interface ThemeColorMap {
-  diffAddedBackground: string;
-  diffAddedGutterBackground: string;
-  diffAddedForeground: string;
-  diffDeletedBackground: string;
-  diffDeletedGutterBackground: string;
-  diffDeletedForeground: string;
-  diffModifiedBackground: string;
-  diffModifiedGutterBackground: string;
-  diffUnchangedBackground: string;
-  pageBackground: string;
-  surfaceBackground: string;
-  textPrimary: string;
-  textSecondary: string;
-  gutterTextColor: string;
-  dividerColor: string;
-  highlightFlashColor: string;
-  toolbarBackground: string;
-}
 
 export class ThemeColors {
   private static instance: ThemeColors | null = null;
@@ -65,8 +45,8 @@ export class ThemeColors {
 
   /** 获取当前主题颜色 Tokens */
   get colors(): ThemeColorMap {
-    if (this._isMonokai) return MonokaiColors;
-    return this._darkMode ? DarkColors : LightColors;
+    if (this._isMonokai) return getMonokaiColors();
+    return this._darkMode ? getDarkColors() : getLightColors();
   }
 
   // ========== 便捷属性（直接代理到当前主题） ==========

@@ -3,88 +3,99 @@
  * 所有 UI 颜色、尺寸、间距均从此文件引用，禁止 magic number
  */
 
+// ==================== 主题颜色类型 ====================
+
+export class ThemeColorMap {
+  diffAddedBackground: string = '';
+  diffAddedGutterBackground: string = '';
+  diffAddedForeground: string = '';
+  diffDeletedBackground: string = '';
+  diffDeletedGutterBackground: string = '';
+  diffDeletedForeground: string = '';
+  diffModifiedBackground: string = '';
+  diffModifiedGutterBackground: string = '';
+  diffUnchangedBackground: string = '';
+  pageBackground: string = '';
+  surfaceBackground: string = '';
+  textPrimary: string = '';
+  textSecondary: string = '';
+  gutterTextColor: string = '';
+  dividerColor: string = '';
+  highlightFlashColor: string = '';
+  toolbarBackground: string = '';
+}
+
 // ==================== Diff 着色 Tokens（Light 模式） ====================
 
-export const LightColors = {
-  /** 新增行背景色 */
-  diffAddedBackground: '#E6FFEC',
-  /** 新增行行号背景色 */
-  diffAddedGutterBackground: '#C6F0D0',
-  /** 新增行文字颜色 */
-  diffAddedForeground: '#1A7F37',
-  /** 删除行背景色 */
-  diffDeletedBackground: '#FFEBE9',
-  /** 删除行行号背景色 */
-  diffDeletedGutterBackground: '#F0C8C4',
-  /** 删除行文字颜色 */
-  diffDeletedForeground: '#BE2E2E',
-  /** 修改行背景色 */
-  diffModifiedBackground: '#FFF3D4',
-  /** 修改行行号背景色 */
-  diffModifiedGutterBackground: '#F0DFA0',
-  /** 未变更行背景色 */
-  diffUnchangedBackground: '#FFFFFF',
-  /** 页面背景色 */
-  pageBackground: '#F5F5F5',
-  /** 卡片/面板背景色 */
-  surfaceBackground: '#FFFFFF',
-  /** 主要文字颜色 */
-  textPrimary: '#1C1C1C',
-  /** 次要文字颜色 */
-  textSecondary: '#666666',
-  /** 行号文字颜色 */
-  gutterTextColor: '#999999',
-  /** 分隔线颜色 */
-  dividerColor: '#E0E0E0',
-  /** 导航高亮闪烁色 */
-  highlightFlashColor: '#FFD54F',
-  /** Toolbar 背景色 */
-  toolbarBackground: '#FFFFFF',
-} as const;
+export function getLightColors(): ThemeColorMap {
+  let c = new ThemeColorMap();
+  c.diffAddedBackground = '#E6FFEC';
+  c.diffAddedGutterBackground = '#C6F0D0';
+  c.diffAddedForeground = '#1A7F37';
+  c.diffDeletedBackground = '#FFEBE9';
+  c.diffDeletedGutterBackground = '#F0C8C4';
+  c.diffDeletedForeground = '#BE2E2E';
+  c.diffModifiedBackground = '#FFF3D4';
+  c.diffModifiedGutterBackground = '#F0DFA0';
+  c.diffUnchangedBackground = '#FFFFFF';
+  c.pageBackground = '#F5F5F5';
+  c.surfaceBackground = '#FFFFFF';
+  c.textPrimary = '#1C1C1C';
+  c.textSecondary = '#666666';
+  c.gutterTextColor = '#999999';
+  c.dividerColor = '#E0E0E0';
+  c.highlightFlashColor = '#FFD54F';
+  c.toolbarBackground = '#FFFFFF';
+  return c;
+}
 
 // ==================== Diff 着色 Tokens（Dark 模式） ====================
 
-export const DarkColors = {
-  diffAddedBackground: '#1A3A2A',
-  diffAddedGutterBackground: '#0F2A1C',
-  diffAddedForeground: '#6FE08A',
-  diffDeletedBackground: '#3A1A1A',
-  diffDeletedGutterBackground: '#2A0F0F',
-  diffDeletedForeground: '#F06A6A',
-  diffModifiedBackground: '#3A3010',
-  diffModifiedGutterBackground: '#2A2008',
-  diffUnchangedBackground: '#1A1A1A',
-  pageBackground: '#0D0D0D',
-  surfaceBackground: '#1A1A1A',
-  textPrimary: '#E8E8E8',
-  textSecondary: '#999999',
-  gutterTextColor: '#666666',
-  dividerColor: '#333333',
-  highlightFlashColor: '#4A3800',
-  toolbarBackground: '#1A1A1A',
-} as const;
+export function getDarkColors(): ThemeColorMap {
+  let c = new ThemeColorMap();
+  c.diffAddedBackground = '#1A3A2A';
+  c.diffAddedGutterBackground = '#0F2A1C';
+  c.diffAddedForeground = '#6FE08A';
+  c.diffDeletedBackground = '#3A1A1A';
+  c.diffDeletedGutterBackground = '#2A0F0F';
+  c.diffDeletedForeground = '#F06A6A';
+  c.diffModifiedBackground = '#3A3010';
+  c.diffModifiedGutterBackground = '#2A2008';
+  c.diffUnchangedBackground = '#1A1A1A';
+  c.pageBackground = '#0D0D0D';
+  c.surfaceBackground = '#1A1A1A';
+  c.textPrimary = '#E8E8E8';
+  c.textSecondary = '#999999';
+  c.gutterTextColor = '#666666';
+  c.dividerColor = '#333333';
+  c.highlightFlashColor = '#4A3800';
+  c.toolbarBackground = '#1A1A1A';
+  return c;
+}
 
 // ==================== Diff 着色 Tokens（Monokai 模式） ====================
 
-export const MonokaiColors = {
-  diffAddedBackground: '#232D1A',
-  diffAddedGutterBackground: '#1A2412',
-  diffAddedForeground: '#A6E22E',
-  diffDeletedBackground: '#351B1B',
-  diffDeletedGutterBackground: '#241212',
-  diffDeletedForeground: '#F92672',
-  diffModifiedBackground: '#33301A',
-  diffModifiedGutterBackground: '#242012',
-  diffUnchangedBackground: '#272822',
-  pageBackground: '#1E1F1C',
-  surfaceBackground: '#272822',
-  textPrimary: '#F8F8F2',
-  textSecondary: '#75715E',
-  gutterTextColor: '#75715E',
-  dividerColor: '#3E3D32',
-  highlightFlashColor: '#49483E',
-  toolbarBackground: '#272822',
-} as const;
+export function getMonokaiColors(): ThemeColorMap {
+  let c = new ThemeColorMap();
+  c.diffAddedBackground = '#232D1A';
+  c.diffAddedGutterBackground = '#1A2412';
+  c.diffAddedForeground = '#A6E22E';
+  c.diffDeletedBackground = '#351B1B';
+  c.diffDeletedGutterBackground = '#241212';
+  c.diffDeletedForeground = '#F92672';
+  c.diffModifiedBackground = '#33301A';
+  c.diffModifiedGutterBackground = '#242012';
+  c.diffUnchangedBackground = '#272822';
+  c.pageBackground = '#1E1F1C';
+  c.surfaceBackground = '#272822';
+  c.textPrimary = '#F8F8F2';
+  c.textSecondary = '#75715E';
+  c.gutterTextColor = '#75715E';
+  c.dividerColor = '#3E3D32';
+  c.highlightFlashColor = '#49483E';
+  c.toolbarBackground = '#272822';
+  return c;
+}
 
 // ==================== 尺寸常量 ====================
 

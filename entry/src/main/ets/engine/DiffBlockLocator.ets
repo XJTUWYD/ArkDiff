@@ -10,6 +10,12 @@ export interface DiffBlock {
   startIndex: number;
   /** 差异块包含的行数 */
   length: number;
+  /** 差异块主要类型（1=added, 2=deleted, 3=modified） */
+  blockType: number;
+  /** 起始行号（在 unifiedLines 中的 0-based 位置） */
+  startLine: number;
+  /** 结束行号（在 unifiedLines 中的 0-based 位置） */
+  endLine: number;
 }
 
 export class DiffBlockLocator {
@@ -23,16 +29,23 @@ export class DiffBlockLocator {
     let i = 0;
 
     while (i < diffLines.length) {
-      // 查找差异块的起始行
       if (DiffBlockLocator.isChangeLine(diffLines[i])) {
         const startIndex = i;
-        // 向后遍历，累积连续的差异行
+        let blockType = diffLines[i].type === DiffType.ADDED ? 1 :
+          diffLines[i].type === DiffType.DELETED ? 2 : 3;
         while (i < diffLines.length && DiffBlockLocator.isChangeLine(diffLines[i])) {
+          if (blockType === 3) {
+            if (diffLines[i].type === DiffType.ADDED) blockType = 1;
+            else if (diffLines[i].type === DiffType.DELETED) blockType = 2;
+          }
           i++;
         }
         blocks.push({
           startIndex,
-          length: i - startIndex
+          length: i - startIndex,
+          blockType,
+          startLine: startIndex,
+          endLine: i - 1
         });
       } else {
         i++;

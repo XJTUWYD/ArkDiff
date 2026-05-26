@@ -32,8 +32,14 @@ export class LcsEngine {
     }
 
     // 构建 DP 表：dp[i][j] = LCS 长度（linesA[0..i-1] vs linesB[0..j-1]）
-    const dp: number[][] = Array.from({ length: m + 1 },
-      () => new Array<number>(n + 1).fill(0));
+    const dp: number[][] = [];
+    for (let row = 0; row <= m; row++) {
+      let arr = new Array<number>(n + 1);
+      for (let col = 0; col <= n; col++) {
+        arr[col] = 0;
+      }
+      dp[row] = arr;
+    }
 
     for (let i = 1; i <= m; i++) {
       for (let j = 1; j <= n; j++) {

@@ -1,9 +1,12 @@
 /**
  * AegisDiff — FolderDiffPage (文件对比)
+ * 使用 DiffEngine 进行文件内容差异分析
  */
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
+import { DiffEngine } from '../engine/DiffEngine';
+import { DiffLine, DiffOptions, DiffType } from '../model/DiffModels';
 
 interface FileInfo {
   name: string;
@@ -16,8 +19,9 @@ interface FileInfo {
 struct FolderDiffPage {
   @State fileA: FileInfo | null = null;
   @State fileB: FileInfo | null = null;
-  @State added: number = 0; @State deleted: number = 0; @State similarity: number = 100;
-  @State previewLines: string[] = []; @State previewTypes: number[] = [];
+  @State added: number = 0; @State deleted: number = 0; @State modified: number = 0;
+  @State similarity: number = 100;
+  @State previewLines: DiffLine[] = [];
 
   build() {
     Column() {
@@ -78,6 +82,7 @@ struct FolderDiffPage {
         Row() {
           Text(`+${this.added}`).fontSize(14).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
           Text(`-${this.deleted}`).fontSize(14).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 16, right: 16 })
+          Text(`~${this.modified}`).fontSize(14).fontColor('#D4A017').fontWeight(FontWeight.Medium).margin({ right: 16 })
           Text(`${this.similarity}%`).fontSize(14).fontColor('#333333').fontWeight(FontWeight.Medium)
           Text(' 相似').fontSize(12).fontColor('#999999')
         }
@@ -87,16 +92,19 @@ struct FolderDiffPage {
 
         Scroll() {
           Column() {
-            ForEach(this.previewLines, (line: string, i: number) => {
+            ForEach(this.previewLines, (line: DiffLine, i: number) => {
               Row() {
-                Text(`${i + 1}`).fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
-                Text(line).fontSize(11).fontFamily('monospace')
-                  .fontColor(this.previewTypes[i] === 2 ? '#BE2E2E' : '#D4A017')
+                Text(line.lineNumberA > 0 ? `${line.lineNumberA}` : line.lineNumberB > 0 ? `${line.lineNumberB}` : '')
+                  .fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
+                Text(this.getPrefix(line.type)).fontSize(11).fontWeight(FontWeight.Bold)
+                  .fontColor(this.getDiffColor(line.type)).width(14).textAlign(TextAlign.Center)
+                Text(line.content).fontSize(11).fontFamily('monospace')
+                  .fontColor('#1C1C1C')
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
               }
               .width('100%').height(20)
-              .backgroundColor(this.previewTypes[i] === 2 ? '#FFEBE9' : '#FFF3D4').padding({ left: 4 })
-            }, (line: string, i: number) => `qp_${i}`)
+              .backgroundColor(this.getDiffBg(line.type)).padding({ left: 4 })
+            }, (line: DiffLine, i: number) => `qp_${i}`)
           }.width('100%')
         }
         .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
@@ -107,6 +115,33 @@ struct FolderDiffPage {
       Blank()
     }
     .width('100%').height('100%').backgroundColor('#F5F5F5')
+  }
+
+  private getPrefix(type: DiffType): string {
+    switch (type) {
+      case DiffType.ADDED: return '+';
+      case DiffType.DELETED: return '-';
+      case DiffType.MODIFIED: return '~';
+      default: return ' ';
+    }
+  }
+
+  private getDiffColor(type: DiffType): string {
+    switch (type) {
+      case DiffType.ADDED: return '#1A7F37';
+      case DiffType.DELETED: return '#BE2E2E';
+      case DiffType.MODIFIED: return '#D4A017';
+      default: return '#CCCCCC';
+    }
+  }
+
+  private getDiffBg(type: DiffType): string {
+    switch (type) {
+      case DiffType.ADDED: return '#E6FFEC';
+      case DiffType.DELETED: return '#FFEBE9';
+      case DiffType.MODIFIED: return '#FFF3D4';
+      default: return '#FFFFFF';
+    }
   }
 
   private selectFileA(): void {
@@ -144,36 +179,22 @@ struct FolderDiffPage {
     for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
     fs.closeSync(file);
     let info: FileInfo = { name: name, size: stat.size, content: content };
-    this.computePreview();
+    this.computeDiff();
     return info;
   }
 
-  private computePreview(): void {
+  private computeDiff(): void {
     if (!this.fileA || !this.fileB) return;
-    const a = this.fileA.content.split('\n');
-    const b = this.fileB.content.split('\n');
-    let _added = 0, _deleted = 0, _same = 0;
-    const lines: string[] = []; const types: number[] = [];
-    const max = Math.max(a.length, b.length);
-    for (let i = 0; i < max && i < 30; i++) {
-      const va = i < a.length ? a[i] : '';
-      const vb = i < b.length ? b[i] : '';
-      if (va !== vb || vb === '') {
-        lines.push(va);
-        if (vb === '') { _deleted++; types.push(2); }
-        else { _added++; _deleted++; types.push(3); }
-      }
-      if (i < a.length && i < b.length && va === vb) _same++;
-      else if (i < a.length && i < b.length) { _added++; _deleted++; }
-      else if (i < a.length) _deleted++;
-      else _added++;
-    }
-    this.previewLines = lines;
-    this.previewTypes = types;
-    this.added = _added;
-    this.deleted = _deleted;
-    const total = _same + _added + _deleted;
-    this.similarity = total > 0 ? Math.round(_same / total * 1000) / 10 : 100;
+    const options: DiffOptions = {
+      ignoreBlankLines: false,
+      enableCharDiff: false
+    };
+    const result = DiffEngine.computeDiff(this.fileA.content, this.fileB.content, options);
+    this.previewLines = result.unifiedLines;
+    this.added = result.stats.addedCount;
+    this.deleted = result.stats.deletedCount;
+    this.modified = result.stats.modifiedCount;
+    this.similarity = result.stats.similarityPercent;
   }
 
   private formatSize(bytes: number): string {

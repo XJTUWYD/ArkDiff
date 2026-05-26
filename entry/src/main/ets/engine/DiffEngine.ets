@@ -16,7 +16,13 @@ import { LineParser } from './LineParser';
 import { LcsEngine } from './LcsEngine';
 import { MyersEngine } from './MyersEngine';
 import { StatsCalculator } from './StatsCalculator';
+import { CharDiffEngine } from './CharDiffEngine';
 import { LCS_MAX_LINES } from '../utils/ThemeTokens';
+
+class DiffSideBySideResult {
+  leftLines: DiffLine[] = [];
+  rightLines: DiffLine[] = [];
+}
 
 export class DiffEngine {
   /**
@@ -52,7 +58,9 @@ export class DiffEngine {
     );
 
     // Step 5: 构建 Side-by-Side 数据
-    const { leftLines, rightLines } = DiffEngine.buildSideBySideLines(unifiedLines);
+    const sbsResult = DiffEngine.buildSideBySideLines(unifiedLines);
+    const leftLines = sbsResult.leftLines;
+    const rightLines = sbsResult.rightLines;
 
     // Step 6: 计算统计
     const stats = StatsCalculator.calculate(unifiedLines);
@@ -85,24 +93,19 @@ export class DiffEngine {
 
   /**
    * 由 LCS 匹配结果和原始行构建 Unified 视图的 DiffLine 数组
-   *
-   * 核心逻辑：
-   * 1. 将匹配对映射到原始行号
-   * 2. 匹配对之间：A 独有的 → DELETED，B 独有的 → ADDED
-   * 3. 相邻的 DELETE+ADD 合并为 MODIFIED（当它们来自同一"概念行"时）
    */
   private static buildUnifiedLines(
     lcsResult: LcsResult,
     linesA: string[],
     linesB: string[],
-    _options: DiffOptions
+    options: DiffOptions
   ): DiffLine[] {
     const result: DiffLine[] = [];
     const matches = lcsResult.matches;
 
-    let cursorA = 0; // 当前在原始行数组 A 中的位置
-    let cursorB = 0; // 当前在原始行数组 B 中的位置
-    let matchIdx = 0; // 当前处理的匹配对索引
+    let cursorA = 0;
+    let cursorB = 0;
+    let matchIdx = 0;
 
     while (cursorA < linesA.length || cursorB < linesB.length) {
       if (matchIdx < matches.length) {
@@ -110,59 +113,29 @@ export class DiffEngine {
 
         // 处理匹配对之前的差异行（A 独有的 → DELETED）
         while (cursorA < linesA.length && cursorA < match.indexA) {
-          result.push({
-            lineNumberA: cursorA + 1,
-            lineNumberB: -1,
-            content: linesA[cursorA],
-            type: DiffType.DELETED,
-            charSegments: []
-          });
+          result.push(DiffEngine.makeLine(cursorA + 1, -1, linesA[cursorA], '', DiffType.DELETED, []));
           cursorA++;
         }
 
         // 处理匹配对之前的差异行（B 独有的 → ADDED）
         while (cursorB < linesB.length && cursorB < match.indexB) {
-          result.push({
-            lineNumberA: -1,
-            lineNumberB: cursorB + 1,
-            content: linesB[cursorB],
-            type: DiffType.ADDED,
-            charSegments: []
-          });
+          result.push(DiffEngine.makeLine(-1, cursorB + 1, linesB[cursorB], '', DiffType.ADDED, []));
           cursorB++;
         }
 
         // 匹配行 → UNCHANGED
-        result.push({
-          lineNumberA: cursorA + 1,
-          lineNumberB: cursorB + 1,
-          content: linesA[cursorA],
-          type: DiffType.UNCHANGED,
-          charSegments: []
-        });
+        result.push(DiffEngine.makeLine(cursorA + 1, cursorB + 1, linesA[cursorA], '', DiffType.UNCHANGED, []));
         cursorA++;
         cursorB++;
         matchIdx++;
       } else {
         // 剩余行处理
         while (cursorA < linesA.length) {
-          result.push({
-            lineNumberA: cursorA + 1,
-            lineNumberB: -1,
-            content: linesA[cursorA],
-            type: DiffType.DELETED,
-            charSegments: []
-          });
+          result.push(DiffEngine.makeLine(cursorA + 1, -1, linesA[cursorA], '', DiffType.DELETED, []));
           cursorA++;
         }
         while (cursorB < linesB.length) {
-          result.push({
-            lineNumberA: -1,
-            lineNumberB: cursorB + 1,
-            content: linesB[cursorB],
-            type: DiffType.ADDED,
-            charSegments: []
-          });
+          result.push(DiffEngine.makeLine(-1, cursorB + 1, linesB[cursorB], '', DiffType.ADDED, []));
           cursorB++;
         }
         break;
@@ -170,16 +143,13 @@ export class DiffEngine {
     }
 
     // Step 4b: 后处理 — 合并相邻的 DELETE+ADD 为 MODIFIED
-    return DiffEngine.mergeAdjacentChanges(result);
+    return DiffEngine.mergeAdjacentChanges(result, options);
   }
 
   /**
    * 将相邻的删除+新增对合并为修改行
-   * 例如：[- "line1 old", + "line1 new"] → [~ "line1 old" / "line1 new"]
-   *
-   * 策略：DELETED 行和紧随其后的 ADDED 行配对为 MODIFIED
    */
-  private static mergeAdjacentChanges(lines: DiffLine[]): DiffLine[] {
+  private static mergeAdjacentChanges(lines: DiffLine[], options: DiffOptions): DiffLine[] {
     const merged: DiffLine[] = [];
     let i = 0;
 
@@ -190,14 +160,20 @@ export class DiffEngine {
         i + 1 < lines.length &&
         lines[i + 1].type === DiffType.ADDED
       ) {
-        // 合并为 MODIFIED：取删除行的行号和新增行的行号
-        merged.push({
-          lineNumberA: lines[i].lineNumberA,
-          lineNumberB: lines[i + 1].lineNumberB,
-          content: lines[i + 1].content, // 展示新版本内容
-          type: DiffType.MODIFIED,
-          charSegments: []
-        });
+        const oldContent = lines[i].content;
+        const newContent = lines[i + 1].content;
+        let charSegments = options.enableCharDiff
+          ? CharDiffEngine.diffChars(oldContent, newContent)
+          : [];
+
+        merged.push(DiffEngine.makeLine(
+          lines[i].lineNumberA,
+          lines[i + 1].lineNumberB,
+          newContent,
+          oldContent,
+          DiffType.MODIFIED,
+          charSegments
+        ));
         i += 2;
       } else {
         merged.push(lines[i]);
@@ -210,58 +186,84 @@ export class DiffEngine {
 
   /**
    * 由 Unified 视图数据构建 Side-by-Side 左右列数据
-   * 确保左右列行数一致（缺失行用空行占位）
    */
-  private static buildSideBySideLines(unifiedLines: DiffLine[]): {
-    leftLines: DiffLine[];
-    rightLines: DiffLine[];
-  } {
+  private static buildSideBySideLines(unifiedLines: DiffLine[]): DiffSideBySideResult {
     const leftLines: DiffLine[] = [];
     const rightLines: DiffLine[] = [];
-
-    // 创建空占位行
-    const emptyLine = (): DiffLine => ({
-      lineNumberA: -1,
-      lineNumberB: -1,
-      content: '',
-      type: DiffType.UNCHANGED,
-      charSegments: []
-    });
 
     for (const line of unifiedLines) {
       switch (line.type) {
         case DiffType.UNCHANGED:
-          // 两边都显示
-          leftLines.push({ ...line });
-          rightLines.push({ ...line });
+          leftLines.push(DiffEngine.cloneDiffLine(line));
+          rightLines.push(DiffEngine.cloneDiffLine(line));
           break;
 
         case DiffType.DELETED:
-          // 仅左列显示
-          leftLines.push({ ...line });
-          rightLines.push(emptyLine());
+          leftLines.push(DiffEngine.cloneDiffLine(line));
+          rightLines.push(DiffEngine.makeEmptyLine());
           break;
 
         case DiffType.ADDED:
-          // 仅右列显示
-          leftLines.push(emptyLine());
-          rightLines.push({ ...line });
+          leftLines.push(DiffEngine.makeEmptyLine());
+          rightLines.push(DiffEngine.cloneDiffLine(line));
           break;
 
         case DiffType.MODIFIED:
-          // 左列显示旧值样式，右列显示新值样式
-          leftLines.push({
-            ...line,
-            type: DiffType.MODIFIED
-          });
-          rightLines.push({
-            ...line,
-            type: DiffType.MODIFIED
-          });
+          let leftModified = DiffEngine.cloneDiffLine(line);
+          leftModified.type = DiffType.MODIFIED;
+          // 左列显示旧内容
+          leftModified.content = line.oldContent;
+          leftLines.push(leftModified);
+
+          let rightModified = DiffEngine.cloneDiffLine(line);
+          rightModified.type = DiffType.MODIFIED;
+          rightLines.push(rightModified);
           break;
       }
     }
 
-    return { leftLines, rightLines };
+    let result = new DiffSideBySideResult();
+    result.leftLines = leftLines;
+    result.rightLines = rightLines;
+    return result;
+  }
+
+  private static makeLine(
+    lineA: number, lineB: number, content: string, oldContent: string,
+    type: DiffType, segments: import('../model/DiffModels').CharSegment[]
+  ): DiffLine {
+    let line: DiffLine = {
+      lineNumberA: lineA,
+      lineNumberB: lineB,
+      content: content,
+      oldContent: oldContent,
+      type: type,
+      charSegments: segments
+    };
+    return line;
+  }
+
+  private static cloneDiffLine(line: DiffLine): DiffLine {
+    let cloned: DiffLine = {
+      lineNumberA: line.lineNumberA,
+      lineNumberB: line.lineNumberB,
+      content: line.content,
+      oldContent: line.oldContent,
+      type: line.type,
+      charSegments: line.charSegments
+    };
+    return cloned;
+  }
+
+  private static makeEmptyLine(): DiffLine {
+    let empty: DiffLine = {
+      lineNumberA: -1,
+      lineNumberB: -1,
+      content: '',
+      oldContent: '',
+      type: DiffType.UNCHANGED,
+      charSegments: []
+    };
+    return empty;
   }
 }

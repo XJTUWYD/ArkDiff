@@ -4,7 +4,8 @@
     "pages/DiffEditorPage",
     "pages/SettingsPage",
     "pages/MergePage",
-    "pages/FolderDiffPage"
+    "pages/FolderDiffPage",
+    "pages/DirectoryDiffPage"
   ],
   "window": {
     "designWidth": 360,

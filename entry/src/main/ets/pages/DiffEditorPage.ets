@@ -1,11 +1,16 @@
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
-import { fileIo as fs } from '@kit.CoreFileKit';
+import pasteboard from '@ohos.pasteboard';
+import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
 import { InputPanel } from '../components/InputPanel';
+import { DiffOverviewBar } from '../components/DiffOverviewBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
-import { ViewMode } from '../model/DiffModels';
+import { FileUtils } from '../utils/FileUtils';
+import { ViewMode, DiffOptions, CharSegment } from '../model/DiffModels';
+import { DiffEngine } from '../engine/DiffEngine';
+import { TokenType, TokenHighlighter, Token } from '../engine/TokenHighlighter';
 
 @Component
 struct UnifiedLine {
@@ -16,13 +21,44 @@ struct UnifiedLine {
   @Prop searchKeyword: string = '';
   @Prop isSearchMatch: boolean = false;
   @Prop isMonokai: boolean = false;
+  @Prop isHighlighted: boolean = false;
+  @Prop charSegments: CharSegment[] = [];
   build() {
     Row() {
       Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
       Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
       Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.getPColor()).width(14).textAlign(TextAlign.Center)
-      Text(this.content).fontSize(12).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
-    }.width('100%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg())
+      this.contentText()
+    }.width('100%').height(22).backgroundColor(this.getBg())
+  }
+  @Builder
+  contentText() {
+    if (this.charSegments.length > 0 && this.typeNum === 3) {
+      Text() {
+        ForEach(this.charSegments, (seg: CharSegment, idx: number) => {
+          Span(this.content.substring(seg.start, seg.end))
+            .fontSize(12).fontFamily('monospace')
+            .fontColor(seg.type === 1 ? (this.isMonokai ? '#A6E22E' : '#1A7F37') :
+              (this.isMonokai ? '#F8F8F2' : '#1C1C1C'))
+        }, (seg: CharSegment, idx: number) => `seg_${idx}`)
+      }
+      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
+    } else {
+      // 语法高亮：对未变更行和新增/删除行，使用 token 着色
+      this.syntaxText()
+    }
+  }
+
+  @Builder
+  syntaxText() {
+    Text() {
+      ForEach(TokenHighlighter.tokenize(this.content), (tok: Token, _idx: number) => {
+        Span(this.content.substring(tok.start, tok.end))
+          .fontSize(12).fontFamily('monospace')
+          .fontColor(TokenHighlighter.getTokenColor(tok.type, this.isMonokai))
+      }, (tok: Token, _idx: number) => `tk_${_idx}`)
+    }
+    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
   }
   private getPrefix(): string { if (this.typeNum === 1) return '+'; if (this.typeNum === 2) return '-'; if (this.typeNum === 3) return '~'; return ' '; }
   private getPColor(): string {
@@ -30,6 +66,8 @@ struct UnifiedLine {
     if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC';
   }
   private getBg(): string {
+    if (this.isSearchMatch) return this.isMonokai ? '#49483E' : '#FFD54F';
+    if (this.isHighlighted) return this.isMonokai ? '#3A3A2A' : '#FFF9C4';
     if (this.isMonokai) { if (this.typeNum === 1) return '#232D1A'; if (this.typeNum === 2) return '#351B1B'; if (this.typeNum === 3) return '#33301A'; return '#272822'; }
     if (this.typeNum === 1) return '#E6FFEC'; if (this.typeNum === 2) return '#FFEBE9'; if (this.typeNum === 3) return '#FFF3D4'; return '#FFFFFF';
   }
@@ -40,6 +78,7 @@ struct SideBySideRow {
   @Prop leftType: number = 0; @Prop leftContent: string = ''; @Prop leftLineNo: number = -1;
   @Prop rightType: number = 0; @Prop rightContent: string = ''; @Prop rightLineNo: number = -1;
   @Prop isSearchMatch: boolean = false; @Prop isMonokai: boolean = false;
+  @Prop isHighlighted: boolean = false;
   onSyncToRight?: () => void;
   onSyncToLeft?: () => void;
   build() {
@@ -47,7 +86,7 @@ struct SideBySideRow {
       Row() {
         Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
         Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg(this.leftType)).padding({ right: 1 })
+      }.width('46%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
 
       Column() {
         if (this.leftType !== 0 || this.rightType !== 0) {
@@ -67,22 +106,26 @@ struct SideBySideRow {
       Row() {
         Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
         Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.isSearchMatch ? (this.isMonokai ? '#49483E' : '#FFD54F') : this.getBg(this.rightType)).padding({ left: 1 })
+      }.width('46%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
     }.width('100%').height(22)
   }
   private getBg(type: number): string {
+    if (this.isSearchMatch) return this.isMonokai ? '#49483E' : '#FFD54F';
+    if (this.isHighlighted) return this.isMonokai ? '#3A3A2A' : '#FFF9C4';
     if (this.isMonokai) { if (type === 1) return '#232D1A'; if (type === 2) return '#351B1B'; if (type === 3) return '#33301A'; return '#272822'; }
     if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF';
   }
 }
 
 interface SbsPair { leftType: number; leftContent: string; leftLineNo: number; rightType: number; rightContent: string; rightLineNo: number; }
+interface DisplayItem { kind: number; lineIdx: number; gapCount: number; } // kind:0=line, 1=gap
 
 @Entry
 @Component
 struct DiffEditorPage {
   @StorageLink('colorMode') colorMode: string = 'auto';
   @StorageLink('currentBreakpoint') currentBp: string = 'sm';
+  @StorageLink('ignoreBlankLines') ignoreBlankLines: boolean = false;
   @State textA: string = ''; @State textB: string = '';
   @State viewMode: ViewMode = ViewMode.UNIFIED;
   @State inputVisible: boolean = true; @State navIdx: number = 0;
@@ -91,11 +134,34 @@ struct DiffEditorPage {
   @State lineTypes: number[] = []; @State lineContents: string[] = [];
   @State lineNosA: number[] = []; @State lineNosB: number[] = [];
   @State sbsPairs: SbsPair[] = [];
+  @State charSegs: CharSegment[][] = [];
   @State searchActive: boolean = false; @State searchKeyword: string = '';
   @State searchMatches: number[] = []; @State searchIdx: number = 0;
   @State fileAName: string = ''; @State fileBName: string = '';
+  @State collapsedGaps: Set<number> = new Set();
+  @State displayItems: DisplayItem[] = [];
+  private diffBlocks: DiffBlock[] = [];
+  private scroller: Scroller = new Scroller();
 
-  aboutToAppear(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); }
+  aboutToAppear(): void {
+    // 如果从目录对比页面跳转过来，使用传递的文件内容
+    let fromDirA = AppStorage.get<string>('dirDiffContentA');
+    let fromDirB = AppStorage.get<string>('dirDiffContentB');
+    if (fromDirA !== undefined && fromDirA !== null && fromDirB !== undefined && fromDirB !== null) {
+      this.textA = fromDirA;
+      this.textB = fromDirB;
+      this.fileAName = AppStorage.get<string>('dirDiffNameA') || '文件A';
+      this.fileBName = AppStorage.get<string>('dirDiffNameB') || '文件B';
+      AppStorage.delete('dirDiffContentA');
+      AppStorage.delete('dirDiffContentB');
+      AppStorage.delete('dirDiffNameA');
+      AppStorage.delete('dirDiffNameB');
+      this.doDiff();
+    } else {
+      this.textA = SampleDataProvider.getSampleA();
+      this.textB = SampleDataProvider.getSampleB();
+    }
+  }
 
   build() {
     Column() {
@@ -106,7 +172,8 @@ struct DiffEditorPage {
         onPasteSample: () => { this.doPaste(); },
         onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
         onToggleSearch: () => { this.searchActive = !this.searchActive; this.searchKeyword = ''; this.searchMatches = []; },
-        onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); }
+        onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); },
+        onExport: () => { this.exportDiff(); }
       }).width('100%').height(44)
       Divider().height(1).color('#E0E0E0')
 
@@ -119,7 +186,7 @@ struct DiffEditorPage {
           .onClick(() => { this.pickFileB(); })
         Button('📁 对比').fontSize(11).height(28).type(ButtonType.Capsule)
           .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { router.pushUrl({ url: 'pages/FolderDiffPage' }); })
+          .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
         if (this.fileAName !== '' || this.fileBName !== '') {
           Text(this.fileAName !== '' ? `A:${this.fileAName}` : '')
             .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
@@ -165,21 +232,61 @@ struct DiffEditorPage {
         }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
       }
       if (this.isLargeScreen()) {
-        // 桌面端：输入面板与 Diff 结果左右分栏
         Row() {
           if (this.inputVisible) {
             InputPanel({ textA: $textA, textB: $textB }).width('42%').height('100%')
           }
           if (this.hasResult) {
-            Scroll() {
+            Row() {
+              Scroll() {
+                if (this.viewMode === ViewMode.UNIFIED) {
+                  Column() {
+                    ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
+                      this.unifiedRow(item, idx)
+                    }, (item: DisplayItem, idx: number) => `ud_${idx}`)
+                  }
+                } else {
+                  Column() {
+                    ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+                      SideBySideRow({
+                        leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+                        rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+                        isMonokai: this.colorMode === 'monokai',
+                        isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
+                        isHighlighted: this.isLineInCurrentBlock(i),
+                        onSyncToRight: () => { this.syncToRight(p); },
+                        onSyncToLeft: () => { this.syncToLeft(p); }
+                      })
+                    }, (p: SbsPair, i: number) => `s_${i}`)
+                  }
+                }
+              }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
+
+              if (this.diffBlocks.length > 0) {
+                DiffOverviewBar({
+                  blocks: this.diffBlocks, totalLines: this.lineTypes.length,
+                  isMonokai: this.colorMode === 'monokai', activeIdx: this.navIdx,
+                  onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
+                }).width(10).height('100%')
+              }
+            }.width(this.inputVisible ? '58%' : '100%').height('100%')
+          } else {
+            Column() {
+              Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
+              Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+            }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+          }
+        }.width('100%').layoutWeight(1)
+      } else {
+        if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
+        if (this.hasResult) {
+          Row() {
+            Scroll(this.scroller) {
               if (this.viewMode === ViewMode.UNIFIED) {
                 Column() {
-                  ForEach(this.lineTypes, (t: number, i: number) => {
-                    UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
-                      searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
-                      isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
-                    })
-                  }, (t: number, i: number) => `u_${i}`)
+                  ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
+                    this.unifiedRow(item, idx)
+                  }, (item: DisplayItem, idx: number) => `ud_${idx}`)
                 }
               } else {
                 Column() {
@@ -189,49 +296,23 @@ struct DiffEditorPage {
                       rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
                       isMonokai: this.colorMode === 'monokai',
                       isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
+                      isHighlighted: this.isLineInCurrentBlock(i),
                       onSyncToRight: () => { this.syncToRight(p); },
                       onSyncToLeft: () => { this.syncToLeft(p); }
                     })
                   }, (p: SbsPair, i: number) => `s_${i}`)
                 }
               }
-            }.width(this.inputVisible ? '58%' : '100%').height('100%').scrollBar(BarState.Auto)
-          } else {
-            Column() {
-              Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
-              Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
-            }.width('100%').height('100%').justifyContent(FlexAlign.Center)
-          }
-        }.width('100%').layoutWeight(1)
-      } else {
-        // 手机/平板：保持原有纵向堆叠布局
-        if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
-        if (this.hasResult) {
-          Scroll() {
-            if (this.viewMode === ViewMode.UNIFIED) {
-              Column() {
-                ForEach(this.lineTypes, (t: number, i: number) => {
-                  UnifiedLine({ typeNum: t, content: this.lineContents[i], linenoA: this.lineNosA[i], linenoB: this.lineNosB[i],
-                    searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
-                    isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i
-                  })
-                }, (t: number, i: number) => `u_${i}`)
-              }
-            } else {
-              Column() {
-                ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-                  SideBySideRow({
-                    leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-                    rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-                    isMonokai: this.colorMode === 'monokai',
-                    isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
-                    onSyncToRight: () => { this.syncToRight(p); },
-                    onSyncToLeft: () => { this.syncToLeft(p); }
-                  })
-                }, (p: SbsPair, i: number) => `s_${i}`)
-              }
+            }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
+
+            if (this.diffBlocks.length > 0) {
+              DiffOverviewBar({
+                blocks: this.diffBlocks, totalLines: this.lineTypes.length,
+                isMonokai: this.colorMode === 'monokai', activeIdx: this.navIdx,
+                onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
+              }).width(10).height('100%')
             }
-          }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+          }.width('100%').layoutWeight(1)
         } else {
           Column() {
             Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
@@ -250,32 +331,86 @@ struct DiffEditorPage {
 
   private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
 
+  /**
+   * 核心 Diff 计算 — 使用 Myers/LCS 引擎
+   */
   private doDiff(): void {
-    const a = this.textA.split('\n'); const b = this.textB.split('\n');
-    const types: number[] = []; const contents: string[] = []; const nosA: number[] = []; const nosB: number[] = [];
-    const pairs: SbsPair[] = [];
-    let _added = 0, _deleted = 0, _mod = 0, _unch = 0, blk = 0, inBlk = false;
-    const max = Math.max(a.length, b.length);
-    for (let i = 0; i < max; i++) {
-      const aEnd = i >= a.length, bEnd = i >= b.length; const va = aEnd ? '' : a[i]; const vb = bEnd ? '' : b[i];
-      let t: number;
-      if (!aEnd && !bEnd && va === vb) { t = 0; _unch++; inBlk = false; }
-      else if (!aEnd && !bEnd) { t = 3; _mod++; if (!inBlk) { blk++; inBlk = true; } }
-      else if (!aEnd) { t = 2; _deleted++; if (!inBlk) { blk++; inBlk = true; } }
-      else { t = 1; _added++; if (!inBlk) { blk++; inBlk = true; } }
-      types.push(t); contents.push(aEnd ? vb : va);
-      nosA.push(aEnd ? -1 : i + 1); nosB.push(bEnd ? -1 : i + 1);
-      pairs.push({
-        leftType: aEnd ? 0 : (bEnd ? 2 : (va === vb ? 0 : 3)), leftContent: aEnd ? '' : va, leftLineNo: aEnd ? -1 : i + 1,
-        rightType: bEnd ? 0 : (aEnd ? 1 : (va === vb ? 0 : 3)), rightContent: bEnd ? '' : vb, rightLineNo: bEnd ? -1 : i + 1
-      });
+    if (this.textA.length === 0 && this.textB.length === 0) {
+      return;
     }
-    this.lineTypes = types; this.lineContents = contents; this.lineNosA = nosA; this.lineNosB = nosB; this.sbsPairs = pairs;
-    this.added = _added; this.deleted = _deleted; this.modified = _mod;
-    const total = _unch + _added + _deleted + _mod;
-    this.similarity = total > 0 ? Math.round(_unch / total * 1000) / 10 : 100;
-    this.blockCnt = blk; this.hasResult = true;
-    this.searchMatches = []; this.searchIdx = 0;
+
+    const options: DiffOptions = {
+      ignoreBlankLines: this.ignoreBlankLines,
+      enableCharDiff: true
+    };
+
+    const result = DiffEngine.computeDiff(this.textA, this.textB, options);
+
+    // 构建 Unified 视图并行数组
+    this.lineTypes = [];
+    this.lineContents = [];
+    this.lineNosA = [];
+    this.lineNosB = [];
+    this.charSegs = [];
+    for (const line of result.unifiedLines) {
+      this.lineTypes.push(line.type);
+      this.lineContents.push(line.content);
+      this.lineNosA.push(line.lineNumberA);
+      this.lineNosB.push(line.lineNumberB);
+      this.charSegs.push(line.charSegments);
+    }
+
+    // 构建 Side-by-Side 配对
+    this.sbsPairs = [];
+    const len = Math.max(result.leftLines.length, result.rightLines.length);
+    for (let i = 0; i < len; i++) {
+      const left = result.leftLines[i];
+      const right = result.rightLines[i];
+      this.sbsPairs.push({
+        leftType: left ? left.type : 0,
+        leftContent: left ? left.content : '',
+        leftLineNo: left ? left.lineNumberA : -1,
+        rightType: right ? right.type : 0,
+        rightContent: right ? right.content : '',
+        rightLineNo: right ? right.lineNumberB : -1
+      } as SbsPair);
+    }
+
+    // 统计
+    this.added = result.stats.addedCount;
+    this.deleted = result.stats.deletedCount;
+    this.modified = result.stats.modifiedCount;
+    this.similarity = result.stats.similarityPercent;
+    this.blockCnt = result.stats.diffBlockCount;
+    this.hasResult = true;
+
+    // 构建折叠显示列表
+    this.collapsedGaps = new Set();
+    this.buildDisplayItems();
+
+    // 定位差异块，用于导航
+    this.diffBlocks = DiffBlockLocator.locateBlocks(result.unifiedLines);
+    this.navIdx = 0;
+    this.searchMatches = [];
+    this.searchIdx = 0;
+  }
+
+  /**
+   * 判断行是否在当前导航块内
+   */
+  private isLineInCurrentBlock(lineIndex: number): boolean {
+    if (this.diffBlocks.length === 0 || this.navIdx < 0 || this.navIdx >= this.diffBlocks.length) {
+      return false;
+    }
+    const block = this.diffBlocks[this.navIdx];
+    return lineIndex >= block.startIndex && lineIndex < block.startIndex + block.length;
+  }
+
+  private scrollToBlock(blockIdx: number): void {
+    if (blockIdx < 0 || blockIdx >= this.diffBlocks.length) return;
+    const block = this.diffBlocks[blockIdx];
+    this.scroller.scrollToIndex(block.startIndex, true);
+    this.navIdx = blockIdx;
   }
 
   private doSearch(): void {
@@ -286,6 +421,81 @@ struct DiffEditorPage {
       if (this.lineContents[i].toLowerCase().includes(kw)) this.searchMatches.push(i);
     }
     this.searchIdx = 0;
+  }
+
+  /**
+   * 构建 Unified 视图显示列表，将 >8 行的连续 UNCHANGED 区域折叠为 gap
+   */
+  private buildDisplayItems(): void {
+    const GAP_MIN = 8;
+    this.displayItems = [];
+    let i = 0;
+    while (i < this.lineTypes.length) {
+      if (this.lineTypes[i] === 0) {
+        // 统计连续 UNCHANGED 行数
+        let runStart = i;
+        while (i < this.lineTypes.length && this.lineTypes[i] === 0) i++;
+        let runLen = i - runStart;
+        if (runLen > GAP_MIN && !this.collapsedGaps.has(runStart)) {
+          // 折叠：显示前后各 3 行 + gap
+          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++) {
+            let item: DisplayItem = { kind: 0, lineIdx: runStart + j, gapCount: 0 };
+            this.displayItems.push(item);
+          }
+          let gapItem: DisplayItem = { kind: 1, lineIdx: runStart + 3, gapCount: runLen - 6 };
+          this.displayItems.push(gapItem);
+          for (let j = runLen - 3; j < runLen; j++) {
+            if (runStart + j >= runStart + 3) {
+              let item: DisplayItem = { kind: 0, lineIdx: runStart + j, gapCount: 0 };
+              this.displayItems.push(item);
+            }
+          }
+        } else {
+          for (let j = runStart; j < i; j++) {
+            let item: DisplayItem = { kind: 0, lineIdx: j, gapCount: 0 };
+            this.displayItems.push(item);
+          }
+        }
+      } else {
+        let item: DisplayItem = { kind: 0, lineIdx: i, gapCount: 0 };
+        this.displayItems.push(item);
+        i++;
+      }
+    }
+  }
+
+  @Builder
+  unifiedRow(item: DisplayItem, idx: number) {
+    if (item.kind === 1) {
+      this.gapRow(item.lineIdx, item.gapCount)
+    } else {
+      UnifiedLine({ typeNum: this.lineTypes[item.lineIdx], content: this.lineContents[item.lineIdx],
+        linenoA: this.lineNosA[item.lineIdx], linenoB: this.lineNosB[item.lineIdx],
+        searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
+        isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === item.lineIdx,
+        isHighlighted: this.isLineInCurrentBlock(item.lineIdx),
+        charSegments: this.charSegs[item.lineIdx]
+      })
+    }
+  }
+
+  @Builder
+  gapRow(startIdx: number, count: number) {
+    Row() {
+      Text(`⋮ ${count} 行未变更 ⋮`)
+        .fontSize(11).fontColor('#999999').fontFamily('monospace')
+    }
+    .width('100%').height(22)
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#F0F0F0')
+    .onClick(() => {
+      if (this.collapsedGaps.has(startIdx)) {
+        this.collapsedGaps.delete(startIdx);
+      } else {
+        this.collapsedGaps.add(startIdx);
+      }
+      this.buildDisplayItems();
+    })
   }
 
   private syncToRight(p: SbsPair): void {
@@ -318,6 +528,30 @@ struct DiffEditorPage {
 
   private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); this.fileAName = ''; this.fileBName = ''; }
 
+  private exportDiff(): void {
+    const lines: string[] = [];
+    lines.push(`--- A/${this.fileAName || 'fileA'}`);
+    lines.push(`+++ B/${this.fileBName || 'fileB'}`);
+    lines.push(`@@ +${this.added} -${this.deleted} ~${this.modified} ${this.similarity}% @@`);
+    for (let i = 0; i < this.lineTypes.length; i++) {
+      let prefix = ' ';
+      if (this.lineTypes[i] === 1) prefix = '+';
+      else if (this.lineTypes[i] === 2) prefix = '-';
+      else if (this.lineTypes[i] === 3) prefix = '~';
+      lines.push(`${prefix} ${this.lineContents[i]}`);
+    }
+    const text = lines.join('\n');
+    try {
+      const pb = pasteboard.getSystemPasteboard();
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pb.setPasteData(data, () => {
+        AlertDialog.show({ title: '导出成功', message: `${this.blockCnt}个差异块 → 已复制到剪贴板`, autoCancel: true });
+      });
+    } catch (_e) {
+      AlertDialog.show({ title: '导出Diff', message: `${this.blockCnt}个差异块，${text.length}字符`, autoCancel: true });
+    }
+  }
+
   private pickFileA(): void {
     try {
       let context = getContext(this);
@@ -326,16 +560,8 @@ struct DiffEditorPage {
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
         if (uris.length > 0) {
-          let file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
-          let stat = fs.statSync(uris[0]);
-          this.fileAName = uris[0].split('/').pop() || '';
-          let buf = new ArrayBuffer(stat.size);
-          let readLen = fs.readSync(file.fd, buf);
-          let arr = new Uint8Array(buf, 0, readLen);
-          let content = '';
-          for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
-          this.textA = content;
-          fs.closeSync(file);
+          this.fileAName = FileUtils.getFileName(uris[0]);
+          this.textA = FileUtils.readFile(uris[0]);
         }
       });
     } catch (e) { /* ignore */ }
@@ -349,16 +575,8 @@ struct DiffEditorPage {
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
         if (uris.length > 0) {
-          let file = fs.openSync(uris[0], fs.OpenMode.READ_ONLY);
-          let stat = fs.statSync(uris[0]);
-          this.fileBName = uris[0].split('/').pop() || '';
-          let buf = new ArrayBuffer(stat.size);
-          let readLen = fs.readSync(file.fd, buf);
-          let arr = new Uint8Array(buf, 0, readLen);
-          let content = '';
-          for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
-          this.textB = content;
-          fs.closeSync(file);
+          this.fileBName = FileUtils.getFileName(uris[0]);
+          this.textB = FileUtils.readFile(uris[0]);
         }
       });
     } catch (e) { /* ignore */ }

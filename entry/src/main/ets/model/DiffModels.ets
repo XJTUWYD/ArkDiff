@@ -33,8 +33,10 @@ export interface DiffLine {
   lineNumberA: number;
   /** 修改后文件 B 中的行号（从 1 开始，DELETED 时为 -1） */
   lineNumberB: number;
-  /** 该行的文本内容 */
+  /** 该行的文本内容（新版本，即 B 的内容） */
   content: string;
+  /** MODIFIED 行对应的旧版本内容，其他类型为空字符串 */
+  oldContent: string;
   /** 差异类型 */
   type: DiffType;
   /** 字符级差异段（P2 阶段使用，默认空数组） */
