@@ -1,98 +1,135 @@
 /**
- * AegisDiff — TokenHighlighter（语法高亮引擎）
- * 根据文件扩展名进行关键词着色，返回 Token 数组
+ * AegisDiff — TokenHighlighter（多语言语法高亮引擎）
+ * 支持 ArkTS/TypeScript、JavaScript、Python、Java、C/C++ 等语言
  */
 
 export enum TokenType {
-  KEYWORD = 0,
-  STRING = 1,
-  COMMENT = 2,
-  NUMBER = 3,
-  OPERATOR = 4,
-  IDENTIFIER = 5,
-  PLAIN = 6,
+  KEYWORD = 0, STRING = 1, COMMENT = 2, NUMBER = 3,
+  OPERATOR = 4, IDENTIFIER = 5, PLAIN = 6,
 }
 
-export interface Token {
-  start: number;
-  end: number;
-  type: TokenType;
-}
+export interface Token { start: number; end: number; type: TokenType; }
+
+// ===================== 关键词集 =====================
 
 const ARKTS_KEYWORDS = new Set([
-  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger',
-  'default', 'delete', 'do', 'else', 'enum', 'export', 'extends',
-  'false', 'finally', 'for', 'function', 'if', 'import', 'in',
-  'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this',
-  'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
-  'as', 'from', 'of', 'get', 'set', 'let', 'static', 'yield',
-  'async', 'await', 'interface', 'type', 'abstract', 'implements',
-  'private', 'protected', 'public', 'readonly',
-  // ArkTS specific
-  '@State', '@Prop', '@Link', '@Provide', '@Consume', '@StorageLink',
-  '@StorageProp', '@Watch', '@Entry', '@Component', '@Builder',
-  'struct', 'build', 'aboutToAppear', 'aboutToDisappear',
-  'Text', 'Button', 'Row', 'Column', 'ForEach', 'List', 'ListItem',
-  'Scroll', 'Divider', 'TextArea', 'TextInput', 'Toggle', 'Blank',
-  'FlexAlign', 'BarState', 'TextAlign', 'TextOverflow', 'FontWeight',
-  'Color', 'ButtonType', 'ToggleType',
+  'break','case','catch','class','const','continue','debugger','default','delete','do',
+  'else','enum','export','extends','false','finally','for','function','if','import','in',
+  'instanceof','new','null','return','super','switch','this','throw','true','try','typeof',
+  'var','void','while','with','as','from','of','get','set','let','static','yield',
+  'async','await','interface','type','abstract','implements','private','protected','public','readonly',
+  '@State','@Prop','@Link','@Provide','@Consume','@StorageLink','@StorageProp','@Watch',
+  '@Entry','@Component','@Builder','struct','build','aboutToAppear','aboutToDisappear',
+  'Text','Button','Row','Column','ForEach','List','ListItem','Scroll','Divider',
+  'TextArea','TextInput','Toggle','Blank','FlexAlign','BarState','TextAlign',
+  'TextOverflow','FontWeight','Color','ButtonType','ToggleType',
 ]);
 
+const PYTHON_KEYWORDS = new Set([
+  'False','None','True','and','as','assert','async','await','break','class','continue',
+  'def','del','elif','else','except','finally','for','from','global','if','import','in',
+  'is','lambda','nonlocal','not','or','pass','raise','return','try','while','with','yield',
+  'print','self','__init__','__name__','__main__',
+]);
+
+const JS_KEYWORDS = new Set([
+  'break','case','catch','class','const','continue','debugger','default','delete','do',
+  'else','export','extends','false','finally','for','function','if','import','in',
+  'instanceof','new','null','return','super','switch','this','throw','true','try','typeof',
+  'var','void','while','with','let','static','yield','async','await','of','from',
+  'console','document','window','undefined','NaN','Infinity','Promise','Set','Map','Array','Object','String','Number',
+]);
+
+const JAVA_KEYWORDS = new Set([
+  'abstract','assert','boolean','break','byte','case','catch','char','class','const',
+  'continue','default','do','double','else','enum','extends','final','finally','float',
+  'for','goto','if','implements','import','instanceof','int','interface','long','native',
+  'new','package','private','protected','public','return','short','static','strictfp',
+  'super','switch','synchronized','this','throw','throws','transient','try','void',
+  'volatile','while','true','false','null','String','System','out','println','main',
+]);
+
+const C_KEYWORDS = new Set([
+  'auto','break','case','char','const','continue','default','do','double','else','enum',
+  'extern','float','for','goto','if','inline','int','long','register','restrict','return',
+  'short','signed','sizeof','static','struct','switch','typedef','union','unsigned',
+  'void','volatile','while','NULL','true','false','include','define','ifdef','ifndef',
+  'endif','pragma','printf','scanf','malloc','free','main',
+]);
+
+// 扩展名 → 关键词集
+const EXT_KEYWORDS: Record<string, Set<string>> = {
+  '.ets': ARKTS_KEYWORDS, '.ts': ARKTS_KEYWORDS, '.tsx': ARKTS_KEYWORDS,
+  '.js': JS_KEYWORDS, '.jsx': JS_KEYWORDS, '.mjs': JS_KEYWORDS,
+  '.py': PYTHON_KEYWORDS, '.pyw': PYTHON_KEYWORDS,
+  '.java': JAVA_KEYWORDS,
+  '.c': C_KEYWORDS, '.cpp': C_KEYWORDS, '.cc': C_KEYWORDS, '.cxx': C_KEYWORDS,
+  '.h': C_KEYWORDS, '.hpp': C_KEYWORDS, '.cs': C_KEYWORDS,
+};
+
+// C-style: // 单行, /* */ 块
+const CS_SINGLE = '//';
+const CS_MULTI = '/*``*/'; // split by placeholders
+
+// Python-style: # 单行, \"\"\" 块
+const PY_SINGLE = '#';
+const PY_MULTI = '"""``"""';
+
 export class TokenHighlighter {
-  /**
-   * 对单行代码进行词法分析，返回 Token 列表
-   * @param line 单行文本
-   * @param extension 文件扩展名（用于判断语言）
-   */
   static tokenize(line: string, extension: string = '.ets'): Token[] {
     if (line.length === 0) return [];
     const tokens: Token[] = [];
+    const keywords = EXT_KEYWORDS[extension] || ARKTS_KEYWORDS;
+    const isPython = extension === '.py' || extension === '.pyw';
     let i = 0;
     const len = line.length;
 
     while (i < len) {
       const ch = line.charAt(i);
-      const remaining = line.substring(i);
 
-      // 单行注释 //
-      if (ch === '/' && i + 1 < len && line.charAt(i + 1) === '/') {
-        let commentEnd = i;
-        while (commentEnd < len && line.charAt(commentEnd) !== '\n') commentEnd++;
-        tokens.push({ start: i, end: commentEnd, type: TokenType.COMMENT });
-        i = commentEnd;
-        continue;
+      // C-style 块注释
+      if (!isPython && ch === '/' && i + 1 < len && line.charAt(i + 1) === '*') {
+        let ce = i + 2;
+        while (ce < len && !(line.charAt(ce) === '*' && ce + 1 < len && line.charAt(ce + 1) === '/')) ce++;
+        if (ce < len) ce += 2;
+        tokens.push({ start: i, end: ce, type: TokenType.COMMENT });
+        i = ce; continue;
       }
-
-      // 块注释 /* */
-      if (ch === '/' && i + 1 < len && line.charAt(i + 1) === '*') {
-        let commentEnd = i + 2;
-        while (commentEnd < len && !(line.charAt(commentEnd) === '/' && line.charAt(commentEnd - 1) === '*')) {
-          commentEnd++;
-        }
-        if (commentEnd < len) commentEnd++;
-        tokens.push({ start: i, end: commentEnd, type: TokenType.COMMENT });
-        i = commentEnd;
-        continue;
+      // Python 块注释
+      if (isPython && ch === '"' && i + 2 < len && line.charAt(i + 1) === '"' && line.charAt(i + 2) === '"') {
+        let ce = i + 3;
+        while (ce + 2 < len && !(line.charAt(ce) === '"' && line.charAt(ce + 1) === '"' && line.charAt(ce + 2) === '"')) ce++;
+        if (ce + 2 < len) ce += 3;
+        tokens.push({ start: i, end: ce, type: TokenType.COMMENT });
+        i = ce; continue;
+      }
+      // C-style 单行注释
+      if (!isPython && ch === '/' && i + 1 < len && line.charAt(i + 1) === '/') {
+        tokens.push({ start: i, end: len, type: TokenType.COMMENT });
+        i = len; continue;
+      }
+      // Python 单行注释
+      if (isPython && ch === '#') {
+        tokens.push({ start: i, end: len, type: TokenType.COMMENT });
+        i = len; continue;
       }
 
       // 字符串
       if (ch === '"' || ch === "'" || ch === '`') {
-        let strEnd = i + 1;
         const quote = ch;
+        let strEnd = i + 1;
         while (strEnd < len && line.charAt(strEnd) !== quote) {
-          if (line.charAt(strEnd) === '\\') strEnd++; // skip escape
+          if (line.charAt(strEnd) === '\\') strEnd++;
           strEnd++;
         }
-        if (strEnd < len) strEnd++; // include closing quote
+        if (strEnd < len) strEnd++;
         tokens.push({ start: i, end: strEnd, type: TokenType.STRING });
-        i = strEnd;
-        continue;
+        i = strEnd; continue;
       }
 
       // 数字
       if ((ch >= '0' && ch <= '9') || (ch === '.' && i + 1 < len && line.charAt(i + 1) >= '0' && line.charAt(i + 1) <= '9')) {
-        let numEnd = i;
-        let hasDot = false;
+        let numEnd = i; let hasDot = false;
         while (numEnd < len) {
           const nc = line.charAt(numEnd);
           if (nc >= '0' && nc <= '9') { numEnd++; continue; }
@@ -100,8 +137,7 @@ export class TokenHighlighter {
           break;
         }
         tokens.push({ start: i, end: numEnd, type: TokenType.NUMBER });
-        i = numEnd;
-        continue;
+        i = numEnd; continue;
       }
 
       // 空白
@@ -109,30 +145,31 @@ export class TokenHighlighter {
         let wsEnd = i;
         while (wsEnd < len && (line.charAt(wsEnd) === ' ' || line.charAt(wsEnd) === '\t')) wsEnd++;
         tokens.push({ start: i, end: wsEnd, type: TokenType.PLAIN });
-        i = wsEnd;
-        continue;
+        i = wsEnd; continue;
       }
 
-      // 操作符/标点
+      // 操作符
       if ('{}()[];,.<>=+-*/%!&|^~?:'.indexOf(ch) >= 0) {
         tokens.push({ start: i, end: i + 1, type: TokenType.OPERATOR });
-        i++;
-        continue;
+        i++; continue;
       }
 
       // 标识符/关键词
       let idEnd = i;
       while (idEnd < len && TokenHighlighter.isIdentChar(line.charAt(idEnd))) idEnd++;
       const word = line.substring(i, idEnd);
-      if (ARKTS_KEYWORDS.has(word)) {
-        tokens.push({ start: i, end: idEnd, type: TokenType.KEYWORD });
-      } else {
-        tokens.push({ start: i, end: idEnd, type: TokenType.IDENTIFIER });
-      }
+      tokens.push({ start: i, end: idEnd, type: keywords.has(word) ? TokenType.KEYWORD : TokenType.IDENTIFIER });
       i = idEnd;
     }
 
     return tokens;
+  }
+
+  static detectLanguage(fileName: string): string {
+    const dot = fileName.lastIndexOf('.');
+    if (dot < 0) return '.ets';
+    const ext = fileName.substring(dot).toLowerCase();
+    return EXT_KEYWORDS[ext] ? ext : '.ets';
   }
 
   private static isIdentChar(ch: string): boolean {
@@ -140,7 +177,6 @@ export class TokenHighlighter {
       (ch >= '0' && ch <= '9') || ch === '_' || ch === '$' || ch === '@';
   }
 
-  /** 获取 Token 类型对应的颜色 */
   static getTokenColor(type: TokenType, isMonokai: boolean): string {
     if (isMonokai) {
       switch (type) {
@@ -149,7 +185,6 @@ export class TokenHighlighter {
         case TokenType.COMMENT: return '#75715E';
         case TokenType.NUMBER: return '#AE81FF';
         case TokenType.OPERATOR: return '#F8F8F2';
-        case TokenType.IDENTIFIER: return '#F8F8F2';
         default: return '#F8F8F2';
       }
     }
@@ -159,7 +194,6 @@ export class TokenHighlighter {
       case TokenType.COMMENT: return '#6A737D';
       case TokenType.NUMBER: return '#005CC5';
       case TokenType.OPERATOR: return '#24292E';
-      case TokenType.IDENTIFIER: return '#24292E';
       default: return '#1C1C1C';
     }
   }

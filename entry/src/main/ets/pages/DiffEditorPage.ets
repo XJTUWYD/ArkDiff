@@ -158,6 +158,7 @@ struct DiffEditorPage {
   @State displayItems: DisplayItem[] = [];
   @State editingIndex: number = -1;
   @State editBuffer: string = '';
+  @State shortcutHint: string = ''; // 快捷键提示
   private diffBlocks: DiffBlock[] = [];
   private scroller: Scroller = new Scroller();
 
@@ -348,9 +349,36 @@ struct DiffEditorPage {
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
     }.width('100%').height('100%').backgroundColor(this.colorMode === 'monokai' ? '#1E1F1C' : '#F5F5F5')
+    .onKeyEvent((event: KeyEvent) => { return this.handleKeyEvent(event); })
   }
 
   private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
+
+  // ===================== 键盘快捷键 =====================
+
+  private handleKeyEvent(event: KeyEvent): boolean {
+    if (event.type !== KeyType.Down) return false;
+    // Escape 取消编辑/搜索
+    if (event.keyCode === 2070) { // ESC 的 keyCode
+      if (this.editingIndex >= 0) { this.cancelEdit(); return true; }
+      if (this.searchActive) { this.searchActive = false; this.searchKeyword = ''; return true; }
+      return false;
+    }
+    if (this.currentBp !== 'lg' && this.currentBp !== 'md') return false;
+
+    if (event.keyCode === 2021) { this.doDiff(); return true; }  // D
+    if (event.keyCode === 2030) { this.searchActive = !this.searchActive; this.searchKeyword = ''; this.searchMatches = []; return true; } // F
+    if (event.keyCode === 2037) { // N
+      if (this.blockCnt > 0) { this.navIdx = (this.navIdx + 1) % this.blockCnt; this.scrollToBlock(this.navIdx); }
+      return true;
+    }
+    if (event.keyCode === 2018) { // E — 编辑当前块第一行
+      if (this.hasResult && this.navIdx < this.diffBlocks.length)
+        this.startEdit(this.diffBlocks[this.navIdx].startIndex);
+      return true;
+    }
+    return false;
+  }
 
   /**
    * 核心 Diff 计算 — 使用 Myers/LCS 引擎
