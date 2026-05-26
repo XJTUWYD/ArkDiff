@@ -83,6 +83,94 @@ export interface DiffStats {
   diffBlockCount: number;
 }
 
+// ==================== Chunk / Hunk 模型（块级 diff） ====================
+
+/** 差异块类型 */
+export enum DiffChunkType {
+  /** 纯插入（仅 B 中新增） */
+  INSERT = 0,
+  /** 纯删除（仅 A 中删除） */
+  DELETE = 1,
+  /** 替换（A 中的行被 B 中的行替换） */
+  REPLACE = 2,
+  /** 相同块（无差异） */
+  EQUAL = 3
+}
+
+/** 差异块（Chunk）—— 比 DiffLine 更高一层的结构化差异单元 */
+export interface DiffChunk {
+  /** 块类型 */
+  chunkType: DiffChunkType;
+  /** A 侧起始行号（1-based，-1 表示无对应行） */
+  startA: number;
+  /** A 侧行数 */
+  countA: number;
+  /** B 侧起始行号（1-based，-1 表示无对应行） */
+  startB: number;
+  /** B 侧行数 */
+  countB: number;
+  /** 块中的具体 DiffLine 列表（已分类为 ADDED/DELETED/MODIFIED） */
+  lines: DiffLine[];
+}
+
+/** 合并冲突块（三方合并用） */
+export interface MergeConflictChunk {
+  /** 冲突起始行号 */
+  startLine: number;
+  /** 冲突行数 */
+  length: number;
+  /** 基础版本内容 */
+  baseContent: string[];
+  /** 我的版本内容 */
+  mineContent: string[];
+  /** 他人的版本内容 */
+  theirsContent: string[];
+  /** 当前解决方式：'mine' | 'theirs' | 'both' | 'unresolved' | 'edited' */
+  resolution: string;
+  /** 用户手动编辑后的内容 */
+  editedContent: string;
+}
+
+/** 目录对比条目 */
+export interface DirectoryDiffEntry {
+  /** 相对路径 */
+  relativePath: string;
+  /** A 侧文件 URI */
+  uriA: string;
+  /** B 侧文件 URI */
+  uriB: string;
+  /** A 侧文件大小 */
+  sizeA: number;
+  /** B 侧文件大小 */
+  sizeB: number;
+  /** 对比状态 */
+  status: DirectoryDiffStatus;
+  /** 相似度（0~100） */
+  similarity: number;
+  /** 修改时间戳 A */
+  mtimeA: number;
+  /** 修改时间戳 B */
+  mtimeB: number;
+  /** 是否为二进制 */
+  isBinary: boolean;
+}
+
+/** 目录对比状态 */
+export enum DirectoryDiffStatus {
+  /** 内容相同 */
+  IDENTICAL = 0,
+  /** 内容不同 */
+  MODIFIED = 1,
+  /** 仅 A 侧存在 */
+  ONLY_IN_A = 2,
+  /** 仅 B 侧存在 */
+  ONLY_IN_B = 3,
+  /** 待对比 */
+  PENDING = 4,
+  /** 二进制文件（跳过内容比对） */
+  BINARY = 5
+}
+
 // ==================== UI 状态模型 ====================
 
 /** DiffViewModel 核心状态 */

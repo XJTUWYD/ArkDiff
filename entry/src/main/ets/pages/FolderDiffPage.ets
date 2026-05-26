@@ -1,11 +1,12 @@
 /**
  * AegisDiff — FolderDiffPage (文件对比)
  * 使用 DiffEngine 进行文件内容差异分析
+ * 文件读取统一委托给 FileContentService
  */
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
-import { fileIo as fs } from '@kit.CoreFileKit';
 import { DiffEngine } from '../engine/DiffEngine';
+import { FileContentService, FileContent } from '../services/FileContentService';
 import { DiffLine, DiffOptions, DiffType } from '../model/DiffModels';
 
 interface FileInfo {
@@ -151,7 +152,17 @@ struct FolderDiffPage {
       opts.maxSelectNumber = 1;
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
-        if (uris.length > 0) this.fileA = this.readFile(uris[0]);
+        if (uris.length > 0) {
+          const fc = FileContentService.readFileContent(uris[0]);
+          this.fileA = { name: fc.fileName, size: fc.sizeBytes, content: fc.content };
+          if (fc.error) {
+            AlertDialog.show({ title: '提示', message: fc.error, autoCancel: true });
+          }
+          if (fc.isBinary && !fc.content) {
+            AlertDialog.show({ title: '提示', message: '二进制文件暂不支持文本比较', autoCancel: true });
+          }
+          this.computeDiff();
+        }
       });
     } catch (e) { /* ignore */ }
   }
@@ -163,24 +174,19 @@ struct FolderDiffPage {
       opts.maxSelectNumber = 1;
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
-        if (uris.length > 0) this.fileB = this.readFile(uris[0]);
+        if (uris.length > 0) {
+          const fc = FileContentService.readFileContent(uris[0]);
+          this.fileB = { name: fc.fileName, size: fc.sizeBytes, content: fc.content };
+          if (fc.error) {
+            AlertDialog.show({ title: '提示', message: fc.error, autoCancel: true });
+          }
+          if (fc.isBinary && !fc.content) {
+            AlertDialog.show({ title: '提示', message: '二进制文件暂不支持文本比较', autoCancel: true });
+          }
+          this.computeDiff();
+        }
       });
     } catch (e) { /* ignore */ }
-  }
-
-  private readFile(uri: string): FileInfo {
-    let file = fs.openSync(uri, fs.OpenMode.READ_ONLY);
-    let stat = fs.statSync(uri);
-    let name = uri.split('/').pop() || 'unknown';
-    let buf = new ArrayBuffer(stat.size);
-    let readLen = fs.readSync(file.fd, buf);
-    let arr = new Uint8Array(buf, 0, readLen);
-    let content = '';
-    for (let i = 0; i < arr.length; i++) content += String.fromCharCode(arr[i]);
-    fs.closeSync(file);
-    let info: FileInfo = { name: name, size: stat.size, content: content };
-    this.computeDiff();
-    return info;
   }
 
   private computeDiff(): void {

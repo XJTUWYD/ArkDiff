@@ -147,34 +147,22 @@ export class DiffEngine {
   }
 
   /**
-   * 将相邻的删除+新增对合并为修改行
+   * 将连续的 DELETE 块与 ADD 块合并为 MODIFIED（块级合并）
+   * 支持：1对1、1对多、多对1、多对多替换
    */
   private static mergeAdjacentChanges(lines: DiffLine[], options: DiffOptions): DiffLine[] {
     const merged: DiffLine[] = [];
     let i = 0;
 
     while (i < lines.length) {
-      // 检查当前是否为 DELETED 且下一行为 ADDED
-      if (
-        lines[i].type === DiffType.DELETED &&
-        i + 1 < lines.length &&
-        lines[i + 1].type === DiffType.ADDED
-      ) {
-        const oldContent = lines[i].content;
-        const newContent = lines[i + 1].content;
-        let charSegments = options.enableCharDiff
-          ? CharDiffEngine.diffChars(oldContent, newContent)
-          : [];
-
-        merged.push(DiffEngine.makeLine(
-          lines[i].lineNumberA,
-          lines[i + 1].lineNumberB,
-          newContent,
-          oldContent,
-          DiffType.MODIFIED,
-          charSegments
-        ));
-        i += 2;
+      if (lines[i].type === DiffType.DELETED || lines[i].type === DiffType.ADDED) {
+        // 收集连续的同类型行，形成 delete block 或 add block
+        const segStart = i;
+        while (i < lines.length && lines[i].type !== DiffType.UNCHANGED) {
+          i++;
+        }
+        const segment = lines.slice(segStart, i);
+        merged.push(...DiffEngine.mergeBlockSegment(segment, options));
       } else {
         merged.push(lines[i]);
         i++;
@@ -182,6 +170,102 @@ export class DiffEngine {
     }
 
     return merged;
+  }
+
+  /**
+   * 将一个连续的差异段（可能包含多个 DELETE 和 ADD）按块合并
+   * 发现模式：DELETE group(s) followed by ADD group(s) → MODIFIED
+   * 单独 DELETE → 保留 DELETED，单独 ADD → 保留 ADDED
+   */
+  private static mergeBlockSegment(segment: DiffLine[], options: DiffOptions): DiffLine[] {
+    const result: DiffLine[] = [];
+
+    // 将 segment 分成 delete 组和 add 组
+    const deletes: number[][] = []; // start,end 对
+    const adds: number[][] = [];
+
+    let j = 0;
+    while (j < segment.length) {
+      const start = j;
+      if (segment[j].type === DiffType.DELETED) {
+        while (j < segment.length && segment[j].type === DiffType.DELETED) j++;
+        deletes.push([start, j]);
+      } else if (segment[j].type === DiffType.ADDED) {
+        while (j < segment.length && segment[j].type === DiffType.ADDED) j++;
+        adds.push([start, j]);
+      } else {
+        j++;
+      }
+    }
+
+    // 将相邻的 delete+add 配对为 modified
+    // 简单的贪心策略：deletes 和 adds 一一对应，多余的保留原类型
+    let dIdx = 0;
+    let aIdx = 0;
+    let consumed = 0; // segment 中已处理的索引位置
+
+    while (dIdx < deletes.length && aIdx < adds.length) {
+      const dRange = deletes[dIdx];
+      const aRange = adds[aIdx];
+
+      // 将 segment 中 consumed 到 dRange[0] 之间的非 DELETE/ADD 行直接添加
+      // (实际上 segment 全是 DELETE 或 ADD，不会有其他类型)
+      consumed = dRange[0];
+
+      // 配对：取 min(deletes group size, adds group size) 行做 MODIFIED
+      const dSize = dRange[1] - dRange[0];
+      const aSize = aRange[1] - aRange[0];
+      const pairCount = Math.min(dSize, aSize);
+
+      for (let k = 0; k < pairCount; k++) {
+        const delLine = segment[dRange[0] + k];
+        const addLine = segment[aRange[0] + k];
+        const oldContent = delLine.content;
+        const newContent = addLine.content;
+        const charSegments = options.enableCharDiff
+          ? CharDiffEngine.diffChars(oldContent, newContent)
+          : [];
+
+        result.push(DiffEngine.makeLine(
+          delLine.lineNumberA,
+          addLine.lineNumberB,
+          newContent,
+          oldContent,
+          DiffType.MODIFIED,
+          charSegments
+        ));
+      }
+
+      // 剩余的删除行保留为 DELETED
+      for (let k = pairCount; k < dSize; k++) {
+        result.push(segment[dRange[0] + k]);
+      }
+      // 剩余的新增行保留为 ADDED
+      for (let k = pairCount; k < aSize; k++) {
+        result.push(segment[aRange[0] + k]);
+      }
+
+      consumed = Math.max(dRange[1], aRange[1]);
+      dIdx++;
+      aIdx++;
+    }
+
+    // 处理剩余的 delete 组
+    while (dIdx < deletes.length) {
+      for (let k = deletes[dIdx][0]; k < deletes[dIdx][1]; k++) {
+        result.push(segment[k]);
+      }
+      dIdx++;
+    }
+    // 处理剩余的 add 组
+    while (aIdx < adds.length) {
+      for (let k = adds[aIdx][0]; k < adds[aIdx][1]; k++) {
+        result.push(segment[k]);
+      }
+      aIdx++;
+    }
+
+    return result;
   }
 
   /**

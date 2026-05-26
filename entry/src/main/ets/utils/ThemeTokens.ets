@@ -97,7 +97,168 @@ export function getMonokaiColors(): ThemeColorMap {
   return c;
 }
 
-// ==================== 尺寸常量 ====================
+// ==================== 按钮语义颜色 ====================
+
+export class ButtonColorMap {
+  primaryBackground: string = '';
+  primaryForeground: string = '';
+  dangerBackground: string = '';
+  dangerForeground: string = '';
+  successBackground: string = '';
+  successForeground: string = '';
+  warningBackground: string = '';
+  warningForeground: string = '';
+  disabledBackground: string = '';
+  disabledForeground: string = '';
+  hoverBackground: string = '';
+}
+
+export function getLightButtonColors(): ButtonColorMap {
+  let c = new ButtonColorMap();
+  c.primaryBackground = '#007AFF';
+  c.primaryForeground = '#FFFFFF';
+  c.dangerBackground = '#E53935';
+  c.dangerForeground = '#FFFFFF';
+  c.successBackground = '#1A7F37';
+  c.successForeground = '#FFFFFF';
+  c.warningBackground = '#F5A623';
+  c.warningForeground = '#FFFFFF';
+  c.disabledBackground = '#C8C8C8';
+  c.disabledForeground = '#888888';
+  c.hoverBackground = '#F0F0F0';
+  return c;
+}
+
+export function getDarkButtonColors(): ButtonColorMap {
+  let c = new ButtonColorMap();
+  c.primaryBackground = '#3399FF';
+  c.primaryForeground = '#FFFFFF';
+  c.dangerBackground = '#EF5350';
+  c.dangerForeground = '#FFFFFF';
+  c.successBackground = '#4CAF50';
+  c.successForeground = '#FFFFFF';
+  c.warningBackground = '#FFB74D';
+  c.warningForeground = '#1C1C1C';
+  c.disabledBackground = '#444444';
+  c.disabledForeground = '#777777';
+  c.hoverBackground = '#333333';
+  return c;
+}
+
+// ==================== Icon System ====================
+
+/**
+ * AegisDiff 图标系统 — 语义化图标名称
+ *
+ * 用法示例：
+ *   <Text>{{ IconTokens.FILE_COMPARE }}</Text>
+ *   <Image src="{{ getIconResource(IconTokens.ARROW_DOWN) }}" />
+ *
+ * 设计原则：
+ *   - Primary actions:   实心图标
+ *   - Secondary actions: 线性图标
+ *   - Navigation:        ← → ↑ ↓ 箭头
+ *   - Status:            ✓ ✗ ⚠ 状态标
+ *   - File ops:          📄 📁 💾 文件操作
+ *
+ * 所有页面和组件必须使用这些 tokens，禁止硬编码 emoji/unicode 图标。
+ */
+class IconTokenValues {
+  // === 导航 ===
+  ARROW_LEFT: string = '←';
+  ARROW_RIGHT: string = '→';
+  ARROW_UP: string = '↑';
+  ARROW_DOWN: string = '↓';
+  CHEVRON_LEFT: string = '‹';
+  CHEVRON_RIGHT: string = '›';
+  CHEVRON_UP: string = '⌃';
+  CHEVRON_DOWN: string = '⌄';
+
+  // === 文件操作 ===
+  FILE_OPEN: string = '📄';
+  FILE_SAVE: string = '💾';
+  FILE_SAVE_AS: string = '📥';
+  FOLDER_OPEN: string = '📁';
+  FILE_COMPARE: string = '⇔';
+  FILE_EXPORT: string = '↗';
+  FILE_IMPORT: string = '↙';
+
+  // === 编辑操作 ===
+  COPY: string = '⧉';
+  PASTE: string = '📋';
+  CUT: string = '✂';
+  UNDO: string = '↩';
+  REDO: string = '↪';
+  EDIT: string = '✎';
+  DELETE: string = '✕';
+  ADD: string = '＋';
+
+  // === 视图 ===
+  VIEW_UNIFIED: string = '☰';
+  VIEW_SIDE_BY_SIDE: string = '◫';
+  VIEW_TREE: string = '◈';
+  VIEW_LIST: string = '≡';
+
+  // === Diff / Merge ===
+  DIFF_NEXT: string = '▼';
+  DIFF_PREV: string = '▲';
+  MERGE_ACCEPT_LEFT: string = '◀';
+  MERGE_ACCEPT_RIGHT: string = '▶';
+  MERGE_KEEP_BOTH: string = '⫿';
+  MERGE_EDIT: string = '✎';
+  SYNC_TO_LEFT: string = '«';
+  SYNC_TO_RIGHT: string = '»';
+
+  // === 搜索 ===
+  SEARCH: string = '🔍';
+  SEARCH_NEXT: string = '▼';
+  SEARCH_PREV: string = '▲';
+
+  // === 状态 ===
+  STATUS_ADDED: string = '＋';
+  STATUS_DELETED: string = '−';
+  STATUS_MODIFIED: string = '~';
+  STATUS_UNCHANGED: string = '=';
+  STATUS_CONFLICT: string = '⚠';
+  STATUS_IDENTICAL: string = '✓';
+  STATUS_ONLY_A: string = '◁';
+  STATUS_ONLY_B: string = '▷';
+
+  // === 通用操作 ===
+  SETTINGS: string = '⚙';
+  CLOSE: string = '✕';
+  REFRESH: string = '↻';
+  FILTER: string = '⊡';
+  EXPAND_ALL: string = '⊞';
+  COLLAPSE_ALL: string = '⊟';
+  MORE: string = '⋯';
+  HOME: string = '⌂';
+  TAB_NEW: string = '＋';
+
+  // === 大文件/二进制 ===
+  WARNING: string = '⚠';
+  INFO: string = '🛈';
+  BINARY_FILE: string = '⬡';
+
+  // === 主题 ===
+  THEME_LIGHT: string = '☀';
+  THEME_DARK: string = '☾';
+}
+export const IconTokens = new IconTokenValues();
+
+/**
+ * 图标尺寸预设（vp）
+ */
+class IconSizeValues {
+  SMALL: number = 14;
+  MEDIUM: number = 16;
+  LARGE: number = 20;
+  XLARGE: number = 24;
+  TOOLBAR: number = 18;
+}
+export const IconSizes = new IconSizeValues();
+
+// ==================== 尺寸常量（Layout） ====================
 
 /** 代码行字体大小（vp） */
 export const CODE_FONT_SIZE_DEFAULT = 14;
@@ -139,6 +300,40 @@ export const PAGE_HORIZONTAL_PADDING = 16;
 
 /** 页面垂直内边距（vp） */
 export const PAGE_VERTICAL_PADDING = 12;
+
+// ==================== 间距体系（Spacing Scale） ====================
+
+/**
+ * 8pt 网格间距体系
+ * 所有 margin/padding 必须使用这些值，禁止任意数字
+ */
+class SpacingValues {
+  /** 2vp — 极小间距（图标与文字之间） */
+  XS: number = 2;
+  /** 4vp — 小间距（紧凑元素之间） */
+  SM: number = 4;
+  /** 8vp — 标准间距（控件之间） */
+  MD: number = 8;
+  /** 12vp — 中等间距（组之间） */
+  LG: number = 12;
+  /** 16vp — 大间距（区块之间） */
+  XL: number = 16;
+  /** 24vp — 超大间距（页面级分隔） */
+  XXL: number = 24;
+  /** 32vp — 页面外边距 */
+  XXXL: number = 32;
+}
+export const Spacing = new SpacingValues();
+
+// ==================== 动画常量 ====================
+
+/** 过渡动画时长（ms） */
+export const ANIMATION_DURATION_FAST = 150;
+export const ANIMATION_DURATION_NORMAL = 250;
+export const ANIMATION_DURATION_SLOW = 400;
+
+/** 差异高亮闪烁时长（ms） */
+export const HIGHLIGHT_FLASH_DURATION = 800;
 
 // ==================== 布局断点（vp） ====================
 

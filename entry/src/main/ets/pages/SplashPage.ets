@@ -32,7 +32,7 @@ struct SplashPage {
       .alignItems(HorizontalAlign.Center)
 
       // 快速入口按钮
-      Button('进入 Diff 编辑')
+      Button('进入工作台')
         .width('80%')
         .height(48)
         .fontSize(16)
@@ -40,7 +40,7 @@ struct SplashPage {
         .backgroundColor('#007AFF')
         .borderRadius(24)
         .onClick(() => {
-          router.pushUrl({ url: 'pages/DiffEditorPage' });
+          router.pushUrl({ url: 'pages/WorkspaceHomePage' });
         })
         .margin({ bottom: 32 })
 

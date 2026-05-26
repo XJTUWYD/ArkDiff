@@ -1,140 +1,41 @@
+/**
+ * AegisDiff — DiffEditorPage（编排层）
+ *
+ * 职责：页面布局编排，将渲染委托给各子组件。
+ * 业务逻辑：DiffSessionViewModel
+ * 行渲染：UnifiedLineRenderer / SideBySideRenderer
+ * 搜索 UI：DiffSearchBar
+ * 文件读取：FileContentService
+ */
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
-import pasteboard from '@ohos.pasteboard';
 import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
 import { InputPanel } from '../components/InputPanel';
 import { DiffOverviewBar } from '../components/DiffOverviewBar';
+import { UnifiedLineRenderer } from '../components/UnifiedLineRenderer';
+import { SideBySideRenderer } from '../components/SideBySideRenderer';
+import { DiffSearchBar } from '../components/DiffSearchBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
-import { FileUtils } from '../utils/FileUtils';
-import { ViewMode, DiffOptions, CharSegment } from '../model/DiffModels';
-import { DiffEngine } from '../engine/DiffEngine';
-import { TokenType, TokenHighlighter, Token } from '../engine/TokenHighlighter';
+import { DiffSessionViewModel } from '../viewmodel/DiffSessionViewModel';
+import { FileContentService } from '../services/FileContentService';
+import { ViewMode, DiffOptions } from '../model/DiffModels';
 
-@Component
-struct UnifiedLine {
-  @Prop typeNum: number = 0;
-  @Prop content: string = '';
-  @Prop linenoA: number = -1;
-  @Prop linenoB: number = -1;
-  @Prop searchKeyword: string = '';
-  @Prop isSearchMatch: boolean = false;
-  @Prop isMonokai: boolean = false;
-  @Prop isHighlighted: boolean = false;
-  @Prop charSegments: CharSegment[] = [];
-  @Prop isEditing: boolean = false;
-  @Link editBuffer: string;
-  onLineClick?: () => void;
-  onEditSubmit?: (value: string) => void;
-  onEditCancel?: () => void;
-
-  build() {
-    Row() {
-      Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
-      Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
-      Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.getPColor()).width(14).textAlign(TextAlign.Center)
-      if (this.isEditing) {
-        TextInput({ text: this.editBuffer })
-          .fontSize(12).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C')
-          .backgroundColor(Color.Transparent).height(22).layoutWeight(1)
-          .padding({ left: 6, right: 6 }).border({ width: 1, color: '#007AFF', style: BorderStyle.Dashed })
-          .onChange((v: string) => { this.editBuffer = v; })
-          .onSubmit((_: EnterKeyType) => { if (this.onEditSubmit) this.onEditSubmit(this.editBuffer); })
-      } else {
-        this.contentText()
-      }
-    }.width('100%').height(22).backgroundColor(this.getBg())
-    .onClick(() => { if (!this.isEditing && this.onLineClick) this.onLineClick(); })
-  }
-  @Builder
-  contentText() {
-    if (this.charSegments.length > 0 && this.typeNum === 3) {
-      Text() {
-        ForEach(this.charSegments, (seg: CharSegment, idx: number) => {
-          Span(this.content.substring(seg.start, seg.end))
-            .fontSize(12).fontFamily('monospace')
-            .fontColor(seg.type === 1 ? (this.isMonokai ? '#A6E22E' : '#1A7F37') :
-              (this.isMonokai ? '#F8F8F2' : '#1C1C1C'))
-        }, (seg: CharSegment, idx: number) => `seg_${idx}`)
-      }
-      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
-    } else {
-      this.syntaxText()
-    }
-  }
-
-  @Builder
-  syntaxText() {
-    Text() {
-      ForEach(TokenHighlighter.tokenize(this.content), (tok: Token, _idx: number) => {
-        Span(this.content.substring(tok.start, tok.end))
-          .fontSize(12).fontFamily('monospace')
-          .fontColor(TokenHighlighter.getTokenColor(tok.type, this.isMonokai))
-      }, (tok: Token, _idx: number) => `tk_${_idx}`)
-    }
-    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
-  }
-  private getPrefix(): string { if (this.typeNum === 1) return '+'; if (this.typeNum === 2) return '-'; if (this.typeNum === 3) return '~'; return ' '; }
-  private getPColor(): string {
-    if (this.isMonokai) { if (this.typeNum === 1) return '#A6E22E'; if (this.typeNum === 2) return '#F92672'; if (this.typeNum === 3) return '#E6DB74'; return '#75715E'; }
-    if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC';
-  }
-  private getBg(): string {
-    if (this.isEditing) return this.isMonokai ? '#2A2A40' : '#E3F2FD';
-    if (this.isSearchMatch) return this.isMonokai ? '#49483E' : '#FFD54F';
-    if (this.isHighlighted) return this.isMonokai ? '#3A3A2A' : '#FFF9C4';
-    if (this.isMonokai) { if (this.typeNum === 1) return '#232D1A'; if (this.typeNum === 2) return '#351B1B'; if (this.typeNum === 3) return '#33301A'; return '#272822'; }
-    if (this.typeNum === 1) return '#E6FFEC'; if (this.typeNum === 2) return '#FFEBE9'; if (this.typeNum === 3) return '#FFF3D4'; return '#FFFFFF';
-  }
+interface SbsPair {
+  leftType: number;
+  leftContent: string;
+  leftLineNo: number;
+  rightType: number;
+  rightContent: string;
+  rightLineNo: number;
 }
 
-@Component
-struct SideBySideRow {
-  @Prop leftType: number = 0; @Prop leftContent: string = ''; @Prop leftLineNo: number = -1;
-  @Prop rightType: number = 0; @Prop rightContent: string = ''; @Prop rightLineNo: number = -1;
-  @Prop isSearchMatch: boolean = false; @Prop isMonokai: boolean = false;
-  @Prop isHighlighted: boolean = false;
-  onSyncToRight?: () => void;
-  onSyncToLeft?: () => void;
-  build() {
-    Row() {
-      Row() {
-        Text(this.leftLineNo > 0 ? `${this.leftLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
-        Text(this.leftContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.getBg(this.leftType)).padding({ right: 1 })
-
-      Column() {
-        if (this.leftType !== 0 || this.rightType !== 0) {
-          if (this.leftType === 2) {
-            Button({ type: ButtonType.Circle }) { Text('→').fontSize(10).fontColor(this.isMonokai ? '#A6E22E' : '#1A7F37') }
-            .width(22).height(20).backgroundColor(Color.Transparent)
-            .onClick(() => { if (this.onSyncToRight) this.onSyncToRight(); })
-          }
-          if (this.rightType === 1) {
-            Button({ type: ButtonType.Circle }) { Text('←').fontSize(10).fontColor(this.isMonokai ? '#F92672' : '#BE2E2E') }
-            .width(22).height(20).backgroundColor(Color.Transparent)
-            .onClick(() => { if (this.onSyncToLeft) this.onSyncToLeft(); })
-          }
-        }
-      }.width(26).justifyContent(FlexAlign.Center)
-
-      Row() {
-        Text(this.rightLineNo > 0 ? `${this.rightLineNo}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(24).textAlign(TextAlign.End).fontFamily('monospace')
-        Text(this.rightContent).fontSize(11).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-      }.width('46%').height(22).backgroundColor(this.getBg(this.rightType)).padding({ left: 1 })
-    }.width('100%').height(22)
-  }
-  private getBg(type: number): string {
-    if (this.isSearchMatch) return this.isMonokai ? '#49483E' : '#FFD54F';
-    if (this.isHighlighted) return this.isMonokai ? '#3A3A2A' : '#FFF9C4';
-    if (this.isMonokai) { if (type === 1) return '#232D1A'; if (type === 2) return '#351B1B'; if (type === 3) return '#33301A'; return '#272822'; }
-    if (type === 1) return '#E6FFEC'; if (type === 2) return '#FFEBE9'; if (type === 3) return '#FFF3D4'; return '#FFFFFF';
-  }
-}
-
-interface SbsPair { leftType: number; leftContent: string; leftLineNo: number; rightType: number; rightContent: string; rightLineNo: number; }
-interface DisplayItem { kind: number; lineIdx: number; gapCount: number; } // kind:0=line, 1=gap
+interface DisplayItem {
+  kind: number;
+  lineIdx: number;
+  gapCount: number;
+} // kind:0=line, 1=gap
 
 @Entry
 @Component
@@ -142,394 +43,215 @@ struct DiffEditorPage {
   @StorageLink('colorMode') colorMode: string = 'auto';
   @StorageLink('currentBreakpoint') currentBp: string = 'sm';
   @StorageLink('ignoreBlankLines') ignoreBlankLines: boolean = false;
-  @State textA: string = ''; @State textB: string = '';
-  @State viewMode: ViewMode = ViewMode.UNIFIED;
-  @State inputVisible: boolean = true; @State navIdx: number = 0;
-  @State added: number = 0; @State deleted: number = 0; @State modified: number = 0;
-  @State similarity: number = 0; @State blockCnt: number = 0; @State hasResult: boolean = false;
-  @State lineTypes: number[] = []; @State lineContents: string[] = [];
-  @State lineNosA: number[] = []; @State lineNosB: number[] = [];
+  @State inputVisible: boolean = true;
+  @State navIdx: number = 0;
   @State sbsPairs: SbsPair[] = [];
-  @State charSegs: CharSegment[][] = [];
-  @State searchActive: boolean = false; @State searchKeyword: string = '';
-  @State searchMatches: number[] = []; @State searchIdx: number = 0;
-  @State fileAName: string = ''; @State fileBName: string = '';
-  @State collapsedGaps: Set<number> = new Set();
   @State displayItems: DisplayItem[] = [];
-  @State editingIndex: number = -1;
+  @State collapsedGaps: Set<number> = new Set();
+  @State shortcutHint: string = '';
   @State editBuffer: string = '';
-  @State shortcutHint: string = ''; // 快捷键提示
-  private diffBlocks: DiffBlock[] = [];
+  @State session: DiffSessionViewModel = new DiffSessionViewModel();
   private scroller: Scroller = new Scroller();
+  private isMonokai: boolean = false;
 
   aboutToAppear(): void {
-    // 如果从目录对比页面跳转过来，使用传递的文件内容
     let fromDirA = AppStorage.get<string>('dirDiffContentA');
     let fromDirB = AppStorage.get<string>('dirDiffContentB');
     if (fromDirA !== undefined && fromDirA !== null && fromDirB !== undefined && fromDirB !== null) {
-      this.textA = fromDirA;
-      this.textB = fromDirB;
-      this.fileAName = AppStorage.get<string>('dirDiffNameA') || '文件A';
-      this.fileBName = AppStorage.get<string>('dirDiffNameB') || '文件B';
+      this.session.textA = fromDirA;
+      this.session.textB = fromDirB;
+      this.session.fileNameA = AppStorage.get<string>('dirDiffNameA') || '文件A';
+      this.session.fileNameB = AppStorage.get<string>('dirDiffNameB') || '文件B';
+      this.session.isFileMode = true;
       AppStorage.delete('dirDiffContentA');
       AppStorage.delete('dirDiffContentB');
       AppStorage.delete('dirDiffNameA');
       AppStorage.delete('dirDiffNameB');
-      this.doDiff();
+      this.session.runTextDiff();
+      this.syncStateFromSession();
     } else {
-      this.textA = SampleDataProvider.getSampleA();
-      this.textB = SampleDataProvider.getSampleB();
+      this.session.textA = SampleDataProvider.getSampleA();
+      this.session.textB = SampleDataProvider.getSampleB();
     }
+    this.updateTheme();
+  }
+
+  private updateTheme(): void {
+    this.isMonokai = this.colorMode === 'monokai';
   }
 
   build() {
     Column() {
       DiffToolbar({
-        viewMode: this.viewMode, isComputing: false, searchActive: false,
-        onRunDiff: () => { this.doDiff(); },
-        onSwitchView: (m: ViewMode) => { this.viewMode = m; },
-        onPasteSample: () => { this.doPaste(); },
+        viewMode: this.session.viewMode, isComputing: this.session.isComputing,
+        searchActive: this.session.searchVisible,
+        onRunDiff: () => { this.session.runTextDiff();
+        this.syncStateFromSession(); },
+        onSwitchView: (m: ViewMode) => { this.session.switchView(m); },
+        onPasteSample: () => { this.pasteSample(); },
         onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
-        onToggleSearch: () => { this.searchActive = !this.searchActive; this.searchKeyword = ''; this.searchMatches = []; },
+        onToggleSearch: () => { this.toggleSearch(); },
         onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); },
         onExport: () => { this.exportDiff(); }
       }).width('100%').height(44)
       Divider().height(1).color('#E0E0E0')
 
-      Row() {
-        Button('📂 选择文件A').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
-          .onClick(() => { this.pickFileA(); })
-        Button('📄 选择文件B').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { this.pickFileB(); })
-        Button('📁 对比').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
-        Button('📑 多Tab').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#FFF3E0').fontColor('#E65100').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { router.pushUrl({ url: 'pages/MultiTabDiffPage' }); })
-        if (this.fileAName !== '' || this.fileBName !== '') {
-          Text(this.fileAName !== '' ? `A:${this.fileAName}` : '')
-            .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
-          Text(this.fileBName !== '' ? `B:${this.fileBName}` : '')
-            .fontSize(10).fontColor('#BE2E2E').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
-        } else {
-          Blank().layoutWeight(1)
-        }
-      }
-      .width('100%').height(36).padding({ left: 8, right: 8 })
-      .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
+      this.fileImportBar()
 
-      if (this.searchActive && this.hasResult) {
-        Row() {
-          Button({ type: ButtonType.Circle }) { Text('×').fontSize(14).fontColor('#666666') }
-          .width(28).height(28).backgroundColor(Color.Transparent)
-          .onClick(() => { this.searchActive = false; this.searchKeyword = ''; })
-          TextInput({ text: this.searchKeyword, placeholder: '搜索...' })
-            .fontSize(12).height(28).layoutWeight(1)
-            .backgroundColor('#FFFFFF').borderRadius(6).padding({ left: 6, right: 6 })
-            .onChange((v: string) => { this.searchKeyword = v; this.doSearch(); })
-          Button({ type: ButtonType.Circle }) { Text('▲').fontSize(12).fontColor('#666666') }
-          .width(24).height(24).backgroundColor(Color.Transparent)
-          .onClick(() => { if (this.searchMatches.length > 0) { this.searchIdx = (this.searchIdx - 1 + this.searchMatches.length) % this.searchMatches.length; } })
-          Button({ type: ButtonType.Circle }) { Text('▼').fontSize(12).fontColor('#666666') }
-          .width(24).height(24).backgroundColor(Color.Transparent)
-          .onClick(() => { if (this.searchMatches.length > 0) { this.searchIdx = (this.searchIdx + 1) % this.searchMatches.length; } })
-          if (this.searchMatches.length > 0) {
-            Text(`${this.searchIdx + 1}/${this.searchMatches.length}`).fontSize(11).fontColor('#999999')
-          }
-        }
-        .width('100%').height(36).padding({ left: 4, right: 4 })
-        .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
+      if (this.session.searchVisible && this.session.diffResult) {
+        DiffSearchBar({
+          totalMatches: this.session.totalSearchResults,
+          currentMatchIndex: this.session.currentSearchResultIndex,
+          onSearch: (keyword: string) => { this.session.performSearch(keyword); },
+          onNavigateNext: () => { this.session.navigateSearchNext(); },
+          onNavigatePrev: () => { this.session.navigateSearchPrev(); },
+          onClose: () => { this.session.hideSearch(); }
+        })
       }
 
-      if (this.hasResult) {
+      if (this.session.diffResult) {
         Row() {
-          Text(`+${this.added}`).fontSize(11).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
-          Text(` -${this.deleted}`).fontSize(11).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
-          Text(` ~${this.modified}`).fontSize(11).fontColor('#D4A017').fontWeight(FontWeight.Medium)
-          Text(`  ${this.similarity}%`).fontSize(11).fontColor('#999999').layoutWeight(1)
-          Text(`${this.blockCnt}块`).fontSize(11).fontColor('#999999')
-        }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
+          Text(`+${this.session.diffResult.stats.addedCount}`).fontSize(11).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
+          Text(` -${this.session.diffResult.stats.deletedCount}`).fontSize(11).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
+          Text(` ~${this.session.diffResult.stats.modifiedCount}`).fontSize(11).fontColor('#D4A017').fontWeight(FontWeight.Medium)
+          Text(`  ${this.session.diffResult.stats.similarityPercent}%`).fontSize(11).fontColor('#999999').layoutWeight(1)
+          Text(`${this.session.diffBlocks.length}块`).fontSize(11).fontColor('#999999')
+        }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
+        .border({ width: { bottom: 1 }, color: '#E0E0E0' })
       }
+
       if (this.isLargeScreen()) {
         Row() {
           if (this.inputVisible) {
-            InputPanel({ textA: $textA, textB: $textB }).width('42%').height('100%')
+            InputPanel({ textA: $session.textA, textB: $session.textB }).width('42%').height('100%')
           }
-          if (this.hasResult) {
+          if (this.session.diffResult) {
             Row() {
-              Scroll() {
-                if (this.viewMode === ViewMode.UNIFIED) {
-                  Column() {
-                    ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
-                      this.unifiedRow(item, idx)
-                    }, (item: DisplayItem, idx: number) => `ud_${idx}`)
-                  }
-                } else {
-                  Column() {
-                    ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-                      SideBySideRow({
-                        leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-                        rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-                        isMonokai: this.colorMode === 'monokai',
-                        isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
-                        isHighlighted: this.isLineInCurrentBlock(i),
-                        onSyncToRight: () => { this.syncToRight(p); },
-                        onSyncToLeft: () => { this.syncToLeft(p); }
-                      })
-                    }, (p: SbsPair, i: number) => `s_${i}`)
-                  }
-                }
-              }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
+              Scroll() { this.diffContentArea() }
+              .layoutWeight(1).height('100%').scrollBar(BarState.Auto)
 
-              if (this.diffBlocks.length > 0) {
+              if (this.session.diffBlocks.length > 0) {
                 DiffOverviewBar({
-                  blocks: this.diffBlocks, totalLines: this.lineTypes.length,
-                  isMonokai: this.colorMode === 'monokai', activeIdx: this.navIdx,
-                  onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
+                  blocks: this.session.diffBlocks,
+                  totalLines: this.session.diffResult ? this.session.diffResult.unifiedLines.length : 0,
+                  isMonokai: this.isMonokai, activeIdx: this.navIdx,
+                  onJumpToBlock: (idx: number) => { this.navIdx = idx;
+                  this.scrollToBlock(idx); }
                 }).width(10).height('100%')
               }
             }.width(this.inputVisible ? '58%' : '100%').height('100%')
           } else {
-            Column() {
-              Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
-              Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
-            }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+            this.emptyState()
           }
         }.width('100%').layoutWeight(1)
       } else {
-        if (this.inputVisible) { InputPanel({ textA: $textA, textB: $textB }).width('100%').height(140) }
-        if (this.hasResult) {
+        if (this.inputVisible) {
+          InputPanel({ textA: $session.textA, textB: $session.textB }).width('100%').height(140)
+        }
+        if (this.session.diffResult) {
           Row() {
-            Scroll(this.scroller) {
-              if (this.viewMode === ViewMode.UNIFIED) {
-                Column() {
-                  ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
-                    this.unifiedRow(item, idx)
-                  }, (item: DisplayItem, idx: number) => `ud_${idx}`)
-                }
-              } else {
-                Column() {
-                  ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-                    SideBySideRow({
-                      leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-                      rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-                      isMonokai: this.colorMode === 'monokai',
-                      isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === i,
-                      isHighlighted: this.isLineInCurrentBlock(i),
-                      onSyncToRight: () => { this.syncToRight(p); },
-                      onSyncToLeft: () => { this.syncToLeft(p); }
-                    })
-                  }, (p: SbsPair, i: number) => `s_${i}`)
-                }
-              }
-            }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
+            Scroll(this.scroller) { this.diffContentArea() }
+            .layoutWeight(1).height('100%').scrollBar(BarState.Auto)
 
-            if (this.diffBlocks.length > 0) {
+            if (this.session.diffBlocks.length > 0) {
               DiffOverviewBar({
-                blocks: this.diffBlocks, totalLines: this.lineTypes.length,
-                isMonokai: this.colorMode === 'monokai', activeIdx: this.navIdx,
-                onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
+                blocks: this.session.diffBlocks,
+                totalLines: this.session.diffResult ? this.session.diffResult.unifiedLines.length : 0,
+                isMonokai: this.isMonokai, activeIdx: this.navIdx,
+                onJumpToBlock: (idx: number) => { this.navIdx = idx;
+                this.scrollToBlock(idx); }
               }).width(10).height('100%')
             }
           }.width('100%').layoutWeight(1)
         } else {
-          Column() {
-            Text('AegisDiff').fontSize(22).fontColor(this.colorMode === 'monokai' ? '#F8F8F2' : '#333333')
-            Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
-          }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+          this.emptyState()
         }
       }
+
       Divider().height(1).color('#E0E0E0')
       DiffNavigator({
-        totalBlocks: this.blockCnt, currentIndex: this.navIdx, inputPanelVisible: this.inputVisible,
+        totalBlocks: this.session.diffBlocks.length, currentIndex: this.navIdx,
+        inputPanelVisible: this.inputVisible,
         onNavigateTo: (i: number) => { this.navIdx = i; },
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
-    }.width('100%').height('100%').backgroundColor(this.colorMode === 'monokai' ? '#1E1F1C' : '#F5F5F5')
+    }.width('100%').height('100%').backgroundColor(this.isMonokai ? '#1E1F1C' : '#F5F5F5')
     .onKeyEvent((event: KeyEvent) => { return this.handleKeyEvent(event); })
   }
 
-  private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
-
-  // ===================== 键盘快捷键 =====================
-
-  private handleKeyEvent(event: KeyEvent): boolean {
-    if (event.type !== KeyType.Down) return false;
-    // Escape 取消编辑/搜索
-    if (event.keyCode === 2070) { // ESC 的 keyCode
-      if (this.editingIndex >= 0) { this.cancelEdit(); return true; }
-      if (this.searchActive) { this.searchActive = false; this.searchKeyword = ''; return true; }
-      return false;
-    }
-    if (this.currentBp !== 'lg' && this.currentBp !== 'md') return false;
-
-    if (event.keyCode === 2021) { this.doDiff(); return true; }  // D
-    if (event.keyCode === 2030) { this.searchActive = !this.searchActive; this.searchKeyword = ''; this.searchMatches = []; return true; } // F
-    if (event.keyCode === 2037) { // N
-      if (this.blockCnt > 0) { this.navIdx = (this.navIdx + 1) % this.blockCnt; this.scrollToBlock(this.navIdx); }
-      return true;
-    }
-    if (event.keyCode === 2018) { // E — 编辑当前块第一行
-      if (this.hasResult && this.navIdx < this.diffBlocks.length)
-        this.startEdit(this.diffBlocks[this.navIdx].startIndex);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * 核心 Diff 计算 — 使用 Myers/LCS 引擎
-   */
-  private doDiff(): void {
-    if (this.textA.length === 0 && this.textB.length === 0) {
-      return;
-    }
-
-    const options: DiffOptions = {
-      ignoreBlankLines: this.ignoreBlankLines,
-      enableCharDiff: true
-    };
-
-    const result = DiffEngine.computeDiff(this.textA, this.textB, options);
-
-    // 构建 Unified 视图并行数组
-    this.lineTypes = [];
-    this.lineContents = [];
-    this.lineNosA = [];
-    this.lineNosB = [];
-    this.charSegs = [];
-    for (const line of result.unifiedLines) {
-      this.lineTypes.push(line.type);
-      this.lineContents.push(line.content);
-      this.lineNosA.push(line.lineNumberA);
-      this.lineNosB.push(line.lineNumberB);
-      this.charSegs.push(line.charSegments);
-    }
-
-    // 构建 Side-by-Side 配对
-    this.sbsPairs = [];
-    const len = Math.max(result.leftLines.length, result.rightLines.length);
-    for (let i = 0; i < len; i++) {
-      const left = result.leftLines[i];
-      const right = result.rightLines[i];
-      this.sbsPairs.push({
-        leftType: left ? left.type : 0,
-        leftContent: left ? left.content : '',
-        leftLineNo: left ? left.lineNumberA : -1,
-        rightType: right ? right.type : 0,
-        rightContent: right ? right.content : '',
-        rightLineNo: right ? right.lineNumberB : -1
-      } as SbsPair);
-    }
-
-    // 统计
-    this.added = result.stats.addedCount;
-    this.deleted = result.stats.deletedCount;
-    this.modified = result.stats.modifiedCount;
-    this.similarity = result.stats.similarityPercent;
-    this.blockCnt = result.stats.diffBlockCount;
-    this.hasResult = true;
-
-    // 构建折叠显示列表
-    this.collapsedGaps = new Set();
-    this.buildDisplayItems();
-
-    // 定位差异块，用于导航
-    this.diffBlocks = DiffBlockLocator.locateBlocks(result.unifiedLines);
-    this.navIdx = 0;
-    this.searchMatches = [];
-    this.searchIdx = 0;
-  }
-
-  /**
-   * 判断行是否在当前导航块内
-   */
-  private isLineInCurrentBlock(lineIndex: number): boolean {
-    if (this.diffBlocks.length === 0 || this.navIdx < 0 || this.navIdx >= this.diffBlocks.length) {
-      return false;
-    }
-    const block = this.diffBlocks[this.navIdx];
-    return lineIndex >= block.startIndex && lineIndex < block.startIndex + block.length;
-  }
-
-  private scrollToBlock(blockIdx: number): void {
-    if (blockIdx < 0 || blockIdx >= this.diffBlocks.length) return;
-    const block = this.diffBlocks[blockIdx];
-    this.scroller.scrollToIndex(block.startIndex, true);
-    this.navIdx = blockIdx;
-  }
-
-  private doSearch(): void {
-    if (this.searchKeyword.length === 0) { this.searchMatches = []; return; }
-    const kw = this.searchKeyword.toLowerCase();
-    this.searchMatches = [];
-    for (let i = 0; i < this.lineContents.length; i++) {
-      if (this.lineContents[i].toLowerCase().includes(kw)) this.searchMatches.push(i);
-    }
-    this.searchIdx = 0;
-  }
-
-  /**
-   * 构建 Unified 视图显示列表，将 >8 行的连续 UNCHANGED 区域折叠为 gap
-   */
-  private buildDisplayItems(): void {
-    const GAP_MIN = 8;
-    this.displayItems = [];
-    let i = 0;
-    while (i < this.lineTypes.length) {
-      if (this.lineTypes[i] === 0) {
-        // 统计连续 UNCHANGED 行数
-        let runStart = i;
-        while (i < this.lineTypes.length && this.lineTypes[i] === 0) i++;
-        let runLen = i - runStart;
-        if (runLen > GAP_MIN && !this.collapsedGaps.has(runStart)) {
-          // 折叠：显示前后各 3 行 + gap
-          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++) {
-            let item: DisplayItem = { kind: 0, lineIdx: runStart + j, gapCount: 0 };
-            this.displayItems.push(item);
-          }
-          let gapItem: DisplayItem = { kind: 1, lineIdx: runStart + 3, gapCount: runLen - 6 };
-          this.displayItems.push(gapItem);
-          for (let j = runLen - 3; j < runLen; j++) {
-            if (runStart + j >= runStart + 3) {
-              let item: DisplayItem = { kind: 0, lineIdx: runStart + j, gapCount: 0 };
-              this.displayItems.push(item);
-            }
-          }
-        } else {
-          for (let j = runStart; j < i; j++) {
-            let item: DisplayItem = { kind: 0, lineIdx: j, gapCount: 0 };
-            this.displayItems.push(item);
-          }
-        }
+  @Builder
+  fileImportBar() {
+    Row() {
+      Button('选择文件A').fontSize(11).height(28).type(ButtonType.Capsule)
+        .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
+        .onClick(() => { this.pickFileA(); })
+      Button('选择文件B').fontSize(11).height(28).type(ButtonType.Capsule)
+        .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .onClick(() => { this.pickFileB(); })
+      Button('目录对比').fontSize(11).height(28).type(ButtonType.Capsule)
+        .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
+      Button('多Tab').fontSize(11).height(28).type(ButtonType.Capsule)
+        .backgroundColor('#FFF3E0').fontColor('#E65100').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .onClick(() => { router.pushUrl({ url: 'pages/MultiTabDiffPage' }); })
+      if (this.session.fileNameA !== '' || this.session.fileNameB !== '') {
+        Text(this.session.fileNameA !== '' ? `A:${this.session.fileNameA}` : '')
+          .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          .margin({ left: 6 })
+        Text(this.session.fileNameB !== '' ? `B:${this.session.fileNameB}` : '')
+          .fontSize(10).fontColor('#BE2E2E').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          .margin({ left: 6 })
       } else {
-        let item: DisplayItem = { kind: 0, lineIdx: i, gapCount: 0 };
-        this.displayItems.push(item);
-        i++;
+        Blank().layoutWeight(1)
       }
     }
+    .width('100%').height(36).padding({ left: 8, right: 8 })
+    .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
   }
 
   @Builder
-  unifiedRow(item: DisplayItem, idx: number) {
-    if (item.kind === 1) {
-      this.gapRow(item.lineIdx, item.gapCount)
+  diffContentArea() {
+    if (this.session.viewMode === ViewMode.UNIFIED) {
+      Column() {
+        ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
+          if (item.kind === 1) {
+            this.gapRow(item.lineIdx, item.gapCount)
+          } else {
+            UnifiedLineRenderer({
+              typeNum: this.session.diffResult!.unifiedLines[item.lineIdx].type,
+              content: this.session.diffResult!.unifiedLines[item.lineIdx].content,
+              linenoA: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberA,
+              linenoB: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberB,
+              isMonokai: this.isMonokai,
+              isSearchMatch: this.session.isLineSearchMatch(item.lineIdx),
+              isHighlighted: this.session.isLineInHighlightedBlock(item.lineIdx),
+              charSegments: this.session.diffResult!.unifiedLines[item.lineIdx].charSegments,
+              isEditing: this.session.isEditing(item.lineIdx),
+              editBuffer: $editBuffer,
+              onLineClick: () => { this.session.startEdit(item.lineIdx); },
+              onEditSubmit: (v: string) => { this.session.submitEdit(v);
+              this.syncStateFromSession(); },
+              onEditCancel: () => { this.session.cancelEdit(); }
+            })
+          }
+        }, (item: DisplayItem, idx: number) => `ud_${idx}`)
+      }
     } else {
-      UnifiedLine({ typeNum: this.lineTypes[item.lineIdx], content: this.lineContents[item.lineIdx],
-        linenoA: this.lineNosA[item.lineIdx], linenoB: this.lineNosB[item.lineIdx],
-        searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
-        isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === item.lineIdx,
-        isHighlighted: this.isLineInCurrentBlock(item.lineIdx),
-        charSegments: this.charSegs[item.lineIdx],
-        isEditing: this.editingIndex === item.lineIdx,
-        editBuffer: $editBuffer,
-        onLineClick: () => { this.startEdit(item.lineIdx); },
-        onEditSubmit: (v: string) => { this.commitEdit(v); },
-        onEditCancel: () => { this.cancelEdit(); }
-      })
+      Column() {
+        ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+          SideBySideRenderer({
+            leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+            rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+            isMonokai: this.isMonokai,
+            isSearchMatch: this.session.isLineSearchMatch(i),
+            isHighlighted: this.session.isLineInHighlightedBlock(i),
+            onSyncToRight: () => { this.session.syncToRight(i);
+            this.syncStateFromSession(); },
+            onSyncToLeft: () => { this.session.syncToLeft(i);
+            this.syncStateFromSession(); }
+          })
+        }, (p: SbsPair, i: number) => `s_${i}`)
+      }
     }
   }
 
@@ -539,9 +261,7 @@ struct DiffEditorPage {
       Text(`⋮ ${count} 行未变更 ⋮`)
         .fontSize(11).fontColor('#999999').fontFamily('monospace')
     }
-    .width('100%').height(22)
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor('#F0F0F0')
+    .width('100%').height(22).justifyContent(FlexAlign.Center).backgroundColor('#F0F0F0')
     .onClick(() => {
       if (this.collapsedGaps.has(startIdx)) {
         this.collapsedGaps.delete(startIdx);
@@ -552,104 +272,140 @@ struct DiffEditorPage {
     })
   }
 
-  private syncToRight(p: SbsPair): void {
-    let arrA = this.textA.split('\n');
-    let arrB = this.textB.split('\n');
-    if (p.leftLineNo > 0 && p.leftLineNo <= arrA.length) {
-      if (p.rightLineNo > 0 && p.rightLineNo <= arrB.length) {
-        arrB[p.rightLineNo - 1] = arrA[p.leftLineNo - 1];
+  @Builder
+  emptyState() {
+    Column() {
+      Text('AegisDiff').fontSize(22).fontColor(this.isMonokai ? '#F8F8F2' : '#333333')
+      Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+    }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+  }
+
+  private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
+
+  /** 从 session 同步显示状态 */
+  private syncStateFromSession(): void {
+    if (!this.session.diffResult) return;
+
+    // 构建 SBS 配对
+    this.sbsPairs = [];
+    const len = Math.max(this.session.diffResult.leftLines.length, this.session.diffResult.rightLines.length);
+    for (let i = 0; i < len; i++) {
+      const left = this.session.diffResult.leftLines[i];
+      const right = this.session.diffResult.rightLines[i];
+      this.sbsPairs.push({
+        leftType: left ? left.type : 0,
+        leftContent: left ? left.content : '',
+        leftLineNo: left ? left.lineNumberA : -1,
+        rightType: right ? right.type : 0,
+        rightContent: right ? right.content : '',
+        rightLineNo: right ? right.lineNumberB : -1
+      } as SbsPair);
+    }
+
+    this.collapsedGaps = new Set();
+    this.buildDisplayItems();
+    this.navIdx = this.session.highlightBlockIndex >= 0 ? this.session.highlightBlockIndex : 0;
+  }
+
+  private buildDisplayItems(): void {
+    const GAP_MIN = 8;
+    this.displayItems = [];
+    if (!this.session.diffResult) return;
+
+    const lines = this.session.diffResult.unifiedLines;
+    let i = 0;
+    while (i < lines.length) {
+      if (lines[i].type === 0) {
+        let runStart = i;
+        while (i < lines.length && lines[i].type === 0) {
+          i++;
+        }
+        let runLen = i - runStart;
+        if (runLen > GAP_MIN && !this.collapsedGaps.has(runStart)) {
+          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++) {
+            this.displayItems.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
+          }
+          this.displayItems.push({ kind: 1, lineIdx: runStart + 3, gapCount: runLen - 6 });
+          for (let j = runLen - 3; j < runLen; j++) {
+            if (runStart + j >= runStart + 3) {
+              this.displayItems.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
+            }
+          }
+        } else {
+          for (let j = runStart; j < i; j++) {
+            this.displayItems.push({ kind: 0, lineIdx: j, gapCount: 0 });
+          }
+        }
       } else {
-        arrB.splice(Math.max(0, p.leftLineNo - 1), 0, arrA[p.leftLineNo - 1]);
+        this.displayItems.push({ kind: 0, lineIdx: i, gapCount: 0 });
+        i++;
       }
-      this.textB = arrB.join('\n');
-      this.doDiff();
     }
   }
 
-  private syncToLeft(p: SbsPair): void {
-    let arrA = this.textA.split('\n');
-    let arrB = this.textB.split('\n');
-    if (p.rightLineNo > 0 && p.rightLineNo <= arrB.length) {
-      if (p.leftLineNo > 0 && p.leftLineNo <= arrA.length) {
-        arrA[p.leftLineNo - 1] = arrB[p.rightLineNo - 1];
-      } else {
-        arrA.splice(Math.max(0, p.rightLineNo - 1), 0, arrB[p.rightLineNo - 1]);
+  private scrollToBlock(blockIdx: number): void {
+    if (blockIdx < 0 || blockIdx >= this.session.diffBlocks.length) return;
+    const block = this.session.diffBlocks[blockIdx];
+    this.scroller.scrollToIndex(block.startIndex, true);
+    this.navIdx = blockIdx;
+  }
+
+  private handleKeyEvent(event: KeyEvent): boolean {
+    if (event.type !== KeyType.Down) return false;
+    if (event.keyCode === 2070) {
+      if (this.session.editState) { this.session.cancelEdit(); return true; }
+      if (this.session.searchVisible) { this.session.hideSearch(); return true; }
+      return false;
+    }
+    if (this.currentBp !== 'lg' && this.currentBp !== 'md') return false;
+
+    if (event.keyCode === 2021) { this.session.runTextDiff(); this.syncStateFromSession(); return true; }
+    if (event.keyCode === 2030) { this.toggleSearch(); return true; }
+    if (event.keyCode === 2037) {
+      if (this.session.diffBlocks.length > 0) {
+        this.session.navigateToNextBlock();
+        this.navIdx = this.session.highlightBlockIndex;
+        this.scrollToBlock(this.session.highlightBlockIndex);
       }
-      this.textA = arrA.join('\n');
-      this.doDiff();
+      return true;
+    }
+    if (event.keyCode === 2018) {
+      const block = this.session.getHighlightedBlock();
+      if (block) this.session.startEdit(block.startIndex);
+      return true;
+    }
+    return false;
+  }
+
+  private toggleSearch(): void {
+    if (this.session.searchVisible) {
+      this.session.hideSearch();
+    } else {
+      this.session.showSearch();
     }
   }
 
-  private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); this.fileAName = ''; this.fileBName = ''; }
-
-  // ===================== 视图内编辑 =====================
-
-  /** 进入编辑模式 */
-  private startEdit(lineIdx: number): void {
-    // 如果之前有一行在编辑，先提交
-    if (this.editingIndex >= 0 && this.editingIndex !== lineIdx) {
-      this.commitEdit(this.editBuffer);
-    }
-    if (lineIdx < 0 || lineIdx >= this.lineContents.length) return;
-    this.editingIndex = lineIdx;
-    this.editBuffer = this.lineContents[lineIdx];
-  }
-
-  /** 提交编辑内容并重新计算 diff */
-  private commitEdit(value: string): void {
-    if (this.editingIndex < 0) return;
-    if (value === this.lineContents[this.editingIndex]) {
-      this.editingIndex = -1;
-      return;
-    }
-    this.lineContents[this.editingIndex] = value;
-
-    // 从 Unified 行重建 textA 和 textB
-    const arrA: string[] = [];
-    const arrB: string[] = [];
-    for (let i = 0; i < this.lineTypes.length; i++) {
-      const typ = this.lineTypes[i];
-      const cnt = this.lineContents[i];
-      if (typ === 0) { arrA.push(cnt); arrB.push(cnt); }
-      else if (typ === 1) { arrB.push(cnt); }
-      else if (typ === 2) { arrA.push(cnt); }
-      else if (typ === 3) { arrA.push(cnt); arrB.push(cnt); }
-    }
-    this.textA = arrA.join('\n');
-    this.textB = arrB.join('\n');
-
-    this.editingIndex = -1;
-    this.doDiff();
-  }
-
-  /** 取消编辑 */
-  private cancelEdit(): void {
-    this.editingIndex = -1;
-    this.editBuffer = '';
+  private pasteSample(): void {
+    this.session.textA = SampleDataProvider.getSampleA();
+    this.session.textB = SampleDataProvider.getSampleB();
+    this.session.fileNameA = '';
+    this.session.fileNameB = '';
+    this.session.isFileMode = false;
   }
 
   private exportDiff(): void {
-    const lines: string[] = [];
-    lines.push(`--- A/${this.fileAName || 'fileA'}`);
-    lines.push(`+++ B/${this.fileBName || 'fileB'}`);
-    lines.push(`@@ +${this.added} -${this.deleted} ~${this.modified} ${this.similarity}% @@`);
-    for (let i = 0; i < this.lineTypes.length; i++) {
-      let prefix = ' ';
-      if (this.lineTypes[i] === 1) prefix = '+';
-      else if (this.lineTypes[i] === 2) prefix = '-';
-      else if (this.lineTypes[i] === 3) prefix = '~';
-      lines.push(`${prefix} ${this.lineContents[i]}`);
+    const text = this.session.generateUnifiedDiff();
+    if (!text) {
+      AlertDialog.show({ title: '无差异数据', message: '请先执行比较', autoCancel: true });
+      return;
     }
-    const text = lines.join('\n');
-    try {
-      const pb = pasteboard.getSystemPasteboard();
-      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
-      pb.setPasteData(data, () => {
-        AlertDialog.show({ title: '导出成功', message: `${this.blockCnt}个差异块 → 已复制到剪贴板`, autoCancel: true });
+    this.session.copyToClipboard(text, () => {
+      AlertDialog.show({
+        title: '导出成功',
+        message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`,
+        autoCancel: true
       });
-    } catch (_e) {
-      AlertDialog.show({ title: '导出Diff', message: `${this.blockCnt}个差异块，${text.length}字符`, autoCancel: true });
-    }
+    });
   }
 
   private pickFileA(): void {
@@ -660,8 +416,12 @@ struct DiffEditorPage {
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
         if (uris.length > 0) {
-          this.fileAName = FileUtils.getFileName(uris[0]);
-          this.textA = FileUtils.readFile(uris[0]);
+          const result = FileContentService.readFileContent(uris[0]);
+          this.session.textA = result.content;
+          this.session.fileNameA = result.fileName;
+          if (result.error) {
+            AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
+          }
         }
       });
     } catch (e) { /* ignore */ }
@@ -675,8 +435,12 @@ struct DiffEditorPage {
       const docPicker = new picker.DocumentViewPicker(context);
       docPicker.select(opts).then((uris: string[]) => {
         if (uris.length > 0) {
-          this.fileBName = FileUtils.getFileName(uris[0]);
-          this.textB = FileUtils.readFile(uris[0]);
+          const result = FileContentService.readFileContent(uris[0]);
+          this.session.textB = result.content;
+          this.session.fileNameB = result.fileName;
+          if (result.error) {
+            AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
+          }
         }
       });
     } catch (e) { /* ignore */ }
