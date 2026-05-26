@@ -5,7 +5,8 @@
     "pages/SettingsPage",
     "pages/MergePage",
     "pages/FolderDiffPage",
-    "pages/DirectoryDiffPage"
+    "pages/DirectoryDiffPage",
+    "pages/MultiTabDiffPage"
   ],
   "window": {
     "designWidth": 360,

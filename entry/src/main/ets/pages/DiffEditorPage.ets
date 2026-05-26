@@ -205,6 +205,9 @@ struct DiffEditorPage {
         Button('📁 对比').fontSize(11).height(28).type(ButtonType.Capsule)
           .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
           .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
+        Button('📑 多Tab').fontSize(11).height(28).type(ButtonType.Capsule)
+          .backgroundColor('#FFF3E0').fontColor('#E65100').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+          .onClick(() => { router.pushUrl({ url: 'pages/MultiTabDiffPage' }); })
         if (this.fileAName !== '' || this.fileBName !== '') {
           Text(this.fileAName !== '' ? `A:${this.fileAName}` : '')
             .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1).margin({ left: 6 })
