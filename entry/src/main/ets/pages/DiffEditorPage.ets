@@ -23,13 +23,29 @@ struct UnifiedLine {
   @Prop isMonokai: boolean = false;
   @Prop isHighlighted: boolean = false;
   @Prop charSegments: CharSegment[] = [];
+  @Prop isEditing: boolean = false;
+  @Link editBuffer: string;
+  onLineClick?: () => void;
+  onEditSubmit?: (value: string) => void;
+  onEditCancel?: () => void;
+
   build() {
     Row() {
       Text(this.linenoA > 0 ? `${this.linenoA}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
       Text(this.linenoB > 0 ? `${this.linenoB}` : '').fontSize(10).fontColor(this.isMonokai ? '#75715E' : '#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
       Text(this.getPrefix()).fontSize(12).fontWeight(FontWeight.Bold).fontColor(this.getPColor()).width(14).textAlign(TextAlign.Center)
-      this.contentText()
+      if (this.isEditing) {
+        TextInput({ text: this.editBuffer })
+          .fontSize(12).fontFamily('monospace').fontColor(this.isMonokai ? '#F8F8F2' : '#1C1C1C')
+          .backgroundColor(Color.Transparent).height(22).layoutWeight(1)
+          .padding({ left: 6, right: 6 }).border({ width: 1, color: '#007AFF', style: BorderStyle.Dashed })
+          .onChange((v: string) => { this.editBuffer = v; })
+          .onSubmit((_: EnterKeyType) => { if (this.onEditSubmit) this.onEditSubmit(this.editBuffer); })
+      } else {
+        this.contentText()
+      }
     }.width('100%').height(22).backgroundColor(this.getBg())
+    .onClick(() => { if (!this.isEditing && this.onLineClick) this.onLineClick(); })
   }
   @Builder
   contentText() {
@@ -44,7 +60,6 @@ struct UnifiedLine {
       }
       .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
     } else {
-      // 语法高亮：对未变更行和新增/删除行，使用 token 着色
       this.syntaxText()
     }
   }
@@ -66,6 +81,7 @@ struct UnifiedLine {
     if (this.typeNum === 1) return '#1A7F37'; if (this.typeNum === 2) return '#BE2E2E'; if (this.typeNum === 3) return '#D4A017'; return '#CCCCCC';
   }
   private getBg(): string {
+    if (this.isEditing) return this.isMonokai ? '#2A2A40' : '#E3F2FD';
     if (this.isSearchMatch) return this.isMonokai ? '#49483E' : '#FFD54F';
     if (this.isHighlighted) return this.isMonokai ? '#3A3A2A' : '#FFF9C4';
     if (this.isMonokai) { if (this.typeNum === 1) return '#232D1A'; if (this.typeNum === 2) return '#351B1B'; if (this.typeNum === 3) return '#33301A'; return '#272822'; }
@@ -140,6 +156,8 @@ struct DiffEditorPage {
   @State fileAName: string = ''; @State fileBName: string = '';
   @State collapsedGaps: Set<number> = new Set();
   @State displayItems: DisplayItem[] = [];
+  @State editingIndex: number = -1;
+  @State editBuffer: string = '';
   private diffBlocks: DiffBlock[] = [];
   private scroller: Scroller = new Scroller();
 
@@ -474,7 +492,12 @@ struct DiffEditorPage {
         searchKeyword: this.searchKeyword, isMonokai: this.colorMode === 'monokai',
         isSearchMatch: this.searchMatches.length > 0 && this.searchMatches[this.searchIdx] === item.lineIdx,
         isHighlighted: this.isLineInCurrentBlock(item.lineIdx),
-        charSegments: this.charSegs[item.lineIdx]
+        charSegments: this.charSegs[item.lineIdx],
+        isEditing: this.editingIndex === item.lineIdx,
+        editBuffer: $editBuffer,
+        onLineClick: () => { this.startEdit(item.lineIdx); },
+        onEditSubmit: (v: string) => { this.commitEdit(v); },
+        onEditCancel: () => { this.cancelEdit(); }
       })
     }
   }
@@ -527,6 +550,52 @@ struct DiffEditorPage {
   }
 
   private doPaste(): void { this.textA = SampleDataProvider.getSampleA(); this.textB = SampleDataProvider.getSampleB(); this.fileAName = ''; this.fileBName = ''; }
+
+  // ===================== 视图内编辑 =====================
+
+  /** 进入编辑模式 */
+  private startEdit(lineIdx: number): void {
+    // 如果之前有一行在编辑，先提交
+    if (this.editingIndex >= 0 && this.editingIndex !== lineIdx) {
+      this.commitEdit(this.editBuffer);
+    }
+    if (lineIdx < 0 || lineIdx >= this.lineContents.length) return;
+    this.editingIndex = lineIdx;
+    this.editBuffer = this.lineContents[lineIdx];
+  }
+
+  /** 提交编辑内容并重新计算 diff */
+  private commitEdit(value: string): void {
+    if (this.editingIndex < 0) return;
+    if (value === this.lineContents[this.editingIndex]) {
+      this.editingIndex = -1;
+      return;
+    }
+    this.lineContents[this.editingIndex] = value;
+
+    // 从 Unified 行重建 textA 和 textB
+    const arrA: string[] = [];
+    const arrB: string[] = [];
+    for (let i = 0; i < this.lineTypes.length; i++) {
+      const typ = this.lineTypes[i];
+      const cnt = this.lineContents[i];
+      if (typ === 0) { arrA.push(cnt); arrB.push(cnt); }
+      else if (typ === 1) { arrB.push(cnt); }
+      else if (typ === 2) { arrA.push(cnt); }
+      else if (typ === 3) { arrA.push(cnt); arrB.push(cnt); }
+    }
+    this.textA = arrA.join('\n');
+    this.textB = arrB.join('\n');
+
+    this.editingIndex = -1;
+    this.doDiff();
+  }
+
+  /** 取消编辑 */
+  private cancelEdit(): void {
+    this.editingIndex = -1;
+    this.editBuffer = '';
+  }
 
   private exportDiff(): void {
     const lines: string[] = [];
