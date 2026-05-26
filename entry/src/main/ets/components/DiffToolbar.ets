@@ -16,6 +16,12 @@ export struct DiffToolbar {
   onOpenMerge: () => void = () => {};
   onExport: () => void = () => {};
 
+  @State hoverPaste: boolean = false;
+  @State hoverSearch: boolean = false;
+  @State hoverMerge: boolean = false;
+  @State hoverExport: boolean = false;
+  @State hoverSettings: boolean = false;
+
   build() {
     Row() {
       Button(this.isComputing ? '…' : '对比')
@@ -45,39 +51,82 @@ export struct DiffToolbar {
 
       Blank()
 
+      // 📋 粘贴示例
       Button({ type: ButtonType.Circle }) {
-        Text('P').fontSize(12).fontColor('#007AFF')
+        Text('📋').fontSize(14)
       }
       .width(28).height(28).backgroundColor(Color.Transparent)
+      .onHover((isHover: boolean) => { this.hoverPaste = isHover; })
+      .bindPopup(this.hoverPaste, {
+        builder: this.tipBuilder('粘贴示例'),
+        placement: Placement.Top,
+        popupColor: '#333333'
+      })
       .onClick(() => { this.onPasteSample(); })
 
+      // 🔍 搜索
       Button({ type: ButtonType.Circle }) {
-        Text('Q').fontSize(12).fontColor(this.searchActive ? '#FFFFFF' : '#007AFF')
+        Text('🔍').fontSize(14)
       }
       .width(28).height(28)
       .backgroundColor(this.searchActive ? '#007AFF' : Color.Transparent)
+      .onHover((isHover: boolean) => { this.hoverSearch = isHover; })
+      .bindPopup(this.hoverSearch, {
+        builder: this.tipBuilder('搜索'),
+        placement: Placement.Top,
+        popupColor: '#333333'
+      })
       .onClick(() => { this.onToggleSearch(); })
 
+      // 🔀 合并
       Button({ type: ButtonType.Circle }) {
-        Text('M').fontSize(11).fontColor('#007AFF')
+        Text('🔀').fontSize(14)
       }
       .width(28).height(28).backgroundColor(Color.Transparent)
+      .onHover((isHover: boolean) => { this.hoverMerge = isHover; })
+      .bindPopup(this.hoverMerge, {
+        builder: this.tipBuilder('合并'),
+        placement: Placement.Top,
+        popupColor: '#333333'
+      })
       .onClick(() => { this.onOpenMerge(); })
 
+      // 📤 导出
       Button({ type: ButtonType.Circle }) {
-        Text('⇓').fontSize(13).fontColor('#007AFF')
+        Text('📤').fontSize(14)
       }
       .width(28).height(28).backgroundColor(Color.Transparent)
+      .onHover((isHover: boolean) => { this.hoverExport = isHover; })
+      .bindPopup(this.hoverExport, {
+        builder: this.tipBuilder('导出'),
+        placement: Placement.Top,
+        popupColor: '#333333'
+      })
       .onClick(() => { this.onExport(); })
 
+      // ⚙ 设置
       Button({ type: ButtonType.Circle }) {
         Text('⚙').fontSize(14).fontColor('#666666')
       }
       .width(28).height(28).backgroundColor(Color.Transparent)
+      .onHover((isHover: boolean) => { this.hoverSettings = isHover; })
+      .bindPopup(this.hoverSettings, {
+        builder: this.tipBuilder('设置'),
+        placement: Placement.Top,
+        popupColor: '#333333'
+      })
       .onClick(() => { this.onOpenSettings(); })
     }
     .width('100%').height('100%')
     .padding({ left: 4, right: 2 })
     .backgroundColor('#FFFFFF')
+  }
+
+  @Builder
+  tipBuilder(text: string) {
+    Text(text)
+      .fontSize(11)
+      .fontColor(Color.White)
+      .padding({ left: 6, right: 6, top: 3, bottom: 3 })
   }
 }
