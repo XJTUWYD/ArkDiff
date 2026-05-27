@@ -1,5 +1,14 @@
 /**
- * AegisDiff — DirectoryDiffPage（P1 升级版 — 树状工作区）
+ * AegisDiff — DirectoryDiffPage（文件集合比较 — P1 升级版 — 树状工作区）
+ *
+ * ⚠ 当前实现定位：文件集合比较（File Collection Compare），非真正的目录树对比。
+ *   原因：HarmonyOS DocumentViewPicker 当前只能选择文件列表，不可选择目录根。
+ *   因此页面通过用户选择多文件并推断相对路径来模拟目录结构。
+ *   未来若 HarmonyOS 支持目录选择器，需重构本页为真正的 DirectoryDiff 模型。
+ *
+ * 已知模型限制：
+ *   - FileEntry.contentA/contentB 全量加载到内存，大文件集合 (>10MB) 可能导致 OOM
+ *   - V0.3+ 计划改为惰性加载 + LRU 缓存模式
  *
  * 新增能力：
  *   - 树形目录结构，展开/折叠

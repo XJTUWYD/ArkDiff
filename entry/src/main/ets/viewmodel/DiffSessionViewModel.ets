@@ -54,6 +54,8 @@ export class DiffSessionViewModel {
   searchKeyword: string = '';
   searchMatches: SearchMatch[] = [];
   searchCurrentIndex: number = 0;
+  /** 搜索匹配行索引缓存（Set<number>），O(1) 判断 isLineSearchMatch */
+  private _searchMatchLineSet: Set<number> = new Set();
 
   // ==================== 编辑 ====================
   editState: EditState | null = null;
@@ -84,6 +86,7 @@ export class DiffSessionViewModel {
       this.highlightBlockIndex = this.diffBlocks.length > 0 ? 0 : -1;
       this.searchMatches = [];
       this.searchCurrentIndex = 0;
+      this._searchMatchLineSet = new Set();
     } catch (e) {
       console.error('DiffSessionViewModel.runTextDiff error:', JSON.stringify(e));
     } finally {
@@ -123,6 +126,7 @@ export class DiffSessionViewModel {
       this.highlightBlockIndex = this.diffBlocks.length > 0 ? 0 : -1;
       this.searchMatches = [];
       this.searchCurrentIndex = 0;
+      this._searchMatchLineSet = new Set();
     } catch (e) {
       console.error('DiffSessionViewModel.loadFileAndDiff error:', JSON.stringify(e));
     } finally {
@@ -201,12 +205,22 @@ export class DiffSessionViewModel {
     this.searchMatches = [];
     this.searchCurrentIndex = 0;
     this.searchKeyword = '';
+    this._searchMatchLineSet = new Set();
+  }
+
+  /** 重建搜索匹配行索引缓存 */
+  private _buildSearchMatchLineSet(): void {
+    this._searchMatchLineSet = new Set<number>();
+    for (let i = 0; i < this.searchMatches.length; i++) {
+      this._searchMatchLineSet.add(this.searchMatches[i].lineIndex);
+    }
   }
 
   performSearch(keyword: string): void {
     this.searchKeyword = keyword;
     this.searchMatches = [];
     this.searchCurrentIndex = 0;
+    this._searchMatchLineSet = new Set();
 
     if (!keyword || !this.diffResult) return;
 
@@ -225,6 +239,7 @@ export class DiffSessionViewModel {
         pos = lowerContent.indexOf(lower, pos + 1);
       }
     }
+    this._buildSearchMatchLineSet();
   }
 
   navigateSearchPrev(): void {
@@ -245,11 +260,9 @@ export class DiffSessionViewModel {
     }
   }
 
+  /** O(1) 判断某行是否有搜索匹配（使用 Set 缓存） */
   isLineSearchMatch(lineIndex: number): boolean {
-    for (let i = 0; i < this.searchMatches.length; i++) {
-      if (this.searchMatches[i].lineIndex === lineIndex) return true;
-    }
-    return false;
+    return this._searchMatchLineSet.has(lineIndex);
   }
 
   get currentSearchResultIndex(): number {
@@ -274,14 +287,28 @@ export class DiffSessionViewModel {
     if (!this.diffResult) return;
     const leftLines = this.diffResult.leftLines;
     if (lineIndexA < 0 || lineIndexA >= leftLines.length) return;
-    const content = leftLines[lineIndexA].content;
+    const leftLine = leftLines[lineIndexA];
+    const content = leftLine.content;
+    const linesB = this.textB.split('\n');
 
-    // 更新 textB 并重算 Diff
-    const lines = this.textB.split('\n');
-    const targetIndex = leftLines[lineIndexA].lineNumberB - 1;
-    if (targetIndex >= 0 && targetIndex < lines.length) {
-      lines[targetIndex] = content;
-      this.textB = lines.join('\n');
+    // DELETED 行：lineNumberB = -1，说明 B 侧无对应行，需要插入（而非替换）
+    if (leftLine.lineNumberB <= 0) {
+      const insIdx = this._findNearestBInsertPos(leftLines, lineIndexA);
+      if (insIdx >= 0 && insIdx <= linesB.length) {
+        linesB.splice(insIdx, 0, content);
+      } else {
+        linesB.push(content);
+      }
+      this.textB = linesB.join('\n');
+      this.runTextDiff();
+      return;
+    }
+
+    // MODIFIED / UNCHANGED：替换目标行
+    const targetIndex = leftLine.lineNumberB - 1;
+    if (targetIndex >= 0 && targetIndex < linesB.length) {
+      linesB[targetIndex] = content;
+      this.textB = linesB.join('\n');
       this.runTextDiff();
     }
   }
@@ -290,16 +317,52 @@ export class DiffSessionViewModel {
     if (!this.diffResult) return;
     const rightLines = this.diffResult.rightLines;
     if (lineIndexB < 0 || lineIndexB >= rightLines.length) return;
-    const content = rightLines[lineIndexB].content;
+    const rightLine = rightLines[lineIndexB];
+    const content = rightLine.content;
+    const linesA = this.textA.split('\n');
 
-    // 更新 textA 并重算 Diff
-    const lines = this.textA.split('\n');
-    const targetIndex = rightLines[lineIndexB].lineNumberA - 1;
-    if (targetIndex >= 0 && targetIndex < lines.length) {
-      lines[targetIndex] = content;
-      this.textA = lines.join('\n');
+    // ADDED 行：lineNumberA = -1，说明 A 侧无对应行，需要插入（而非替换）
+    if (rightLine.lineNumberA <= 0) {
+      const insIdx = this._findNearestAInsertPos(rightLines, lineIndexB);
+      if (insIdx >= 0 && insIdx <= linesA.length) {
+        linesA.splice(insIdx, 0, content);
+      } else {
+        linesA.push(content);
+      }
+      this.textA = linesA.join('\n');
+      this.runTextDiff();
+      return;
+    }
+
+    // MODIFIED / UNCHANGED：替换目标行
+    const targetIndex = rightLine.lineNumberA - 1;
+    if (targetIndex >= 0 && targetIndex < linesA.length) {
+      linesA[targetIndex] = content;
+      this.textA = linesA.join('\n');
       this.runTextDiff();
     }
+  }
+
+  /** 在 leftLines 中向后/向前查找第一个有效 lineNumberB，用于确定 B 侧插入位置 */
+  private _findNearestBInsertPos(leftLines: DiffLine[], fromIndex: number): number {
+    for (let i = fromIndex + 1; i < leftLines.length; i++) {
+      if (leftLines[i].lineNumberB > 0) return leftLines[i].lineNumberB - 1;
+    }
+    for (let i = fromIndex - 1; i >= 0; i--) {
+      if (leftLines[i].lineNumberB > 0) return leftLines[i].lineNumberB;
+    }
+    return -1;
+  }
+
+  /** 在 rightLines 中向后/向前查找第一个有效 lineNumberA，用于确定 A 侧插入位置 */
+  private _findNearestAInsertPos(rightLines: DiffLine[], fromIndex: number): number {
+    for (let i = fromIndex + 1; i < rightLines.length; i++) {
+      if (rightLines[i].lineNumberA > 0) return rightLines[i].lineNumberA - 1;
+    }
+    for (let i = fromIndex - 1; i >= 0; i--) {
+      if (rightLines[i].lineNumberA > 0) return rightLines[i].lineNumberA;
+    }
+    return -1;
   }
 
   // ==================== 行内编辑 ====================

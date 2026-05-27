@@ -39,22 +39,22 @@ export class DiffEngine {
     let linesA = LineParser.parseLines(textA);
     let linesB = LineParser.parseLines(textB);
 
-    // 保留原始行数用于行号映射
-    const originalLinesA = linesA;
-    const originalLinesB = linesB;
-
     // Step 2: 可选过滤空白行
     if (options.ignoreBlankLines) {
       linesA = LineParser.filterBlankLines(linesA);
       linesB = LineParser.filterBlankLines(linesB);
     }
 
-    // Step 3: 执行 Diff 算法
+    // Step 3: 执行 Diff 算法（基于 linesA/linesB，可能已过滤）
+    //   LCS 匹配对中的 indexA/indexB 指向 linesA/linesB 的索引
     const lcsResult = DiffEngine.selectAndRunAlgorithm(linesA, linesB);
 
-    // Step 4: 由 LCS 匹配对 + 原始行构建 DiffLine[]
+    // Step 4: 由 LCS 匹配对 + linesA/linesB 构建 DiffLine[]
+    //   【修复】linesA/linesB 必须与 selectAndRunAlgorithm 使用的数组一致，
+    //   否则 ignoreBlankLines 时 LCS 索引会指向过滤后行号，但传入原始行数组会导致行号错位、
+    //   cursor 游标无法匹配 match.indexA/indexB 从而产生错误 diff 结果。
     const unifiedLines = DiffEngine.buildUnifiedLines(
-      lcsResult, originalLinesA, originalLinesB, options
+      lcsResult, linesA, linesB, options
     );
 
     // Step 5: 构建 Side-by-Side 数据
@@ -92,7 +92,11 @@ export class DiffEngine {
   }
 
   /**
-   * 由 LCS 匹配结果和原始行构建 Unified 视图的 DiffLine 数组
+   * 由 LCS 匹配结果和行数组构建 Unified 视图的 DiffLine 数组
+   * @param lcsResult LCS 匹配结果
+   * @param linesA A 侧行数组（必须与 LCS 计算时使用的数组一致）
+   * @param linesB B 侧行数组（必须与 LCS 计算时使用的数组一致）
+   * @param options Diff 选项
    */
   private static buildUnifiedLines(
     lcsResult: LcsResult,

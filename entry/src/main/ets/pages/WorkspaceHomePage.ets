@@ -21,25 +21,25 @@ struct WorkspaceHomePage {
     {
       title: '文件比较',
       description: '打开两个文件进行差异对比，支持统一视图和分栏视图',
-      icon: '📄',
+      icon: '⊞',
       route: 'pages/FolderDiffPage'
     },
     {
       title: '目录比较',
       description: '对比两个目录中的文件差异，快速定位变更文件',
-      icon: '📁',
+      icon: '⊟',
       route: 'pages/DirectoryDiffPage'
     },
     {
       title: '三路合并',
       description: '基于共同祖先的三方合并，可视化解决冲突',
-      icon: '🔀',
+      icon: '⧖',
       route: 'pages/MergePage'
     },
     {
       title: '文本临时比较',
       description: '粘贴两段文本快速查看差异',
-      icon: '📝',
+      icon: '≡',
       route: 'pages/DiffEditorPage'
     }
   ];
@@ -81,7 +81,7 @@ struct WorkspaceHomePage {
 
         Blank()
 
-        Text('⚙️ 设置')
+        Text('⛭ 设置')
           .fontSize(13)
           .fontColor('#007AFF')
           .onClick(() => {

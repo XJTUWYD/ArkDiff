@@ -21,6 +21,10 @@ import { SampleDataProvider } from '../utils/SampleDataProvider';
 import { DiffSessionViewModel } from '../viewmodel/DiffSessionViewModel';
 import { FileContentService } from '../services/FileContentService';
 import { ViewMode, DiffOptions } from '../model/DiffModels';
+import {
+  ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors,
+  ButtonColorMap, getLightButtonColors, getDarkButtonColors
+} from '../utils/ThemeTokens';
 
 interface SbsPair {
   leftType: number;
@@ -51,6 +55,8 @@ struct DiffEditorPage {
   @State shortcutHint: string = '';
   @State editBuffer: string = '';
   @State session: DiffSessionViewModel = new DiffSessionViewModel();
+  @State theme: ThemeColorMap = getLightColors();
+  @State btnTheme: ButtonColorMap = getLightButtonColors();
   private scroller: Scroller = new Scroller();
   private isMonokai: boolean = false;
 
@@ -78,6 +84,18 @@ struct DiffEditorPage {
 
   private updateTheme(): void {
     this.isMonokai = this.colorMode === 'monokai';
+    if (this.isMonokai) {
+      this.theme = getMonokaiColors();
+    } else if (this.colorMode === 'dark') {
+      this.theme = getDarkColors();
+    } else {
+      this.theme = getLightColors();
+    }
+    if (this.colorMode === 'dark' || this.isMonokai) {
+      this.btnTheme = getDarkButtonColors();
+    } else {
+      this.btnTheme = getLightButtonColors();
+    }
   }
 
   build() {
@@ -94,7 +112,7 @@ struct DiffEditorPage {
         onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); },
         onExport: () => { this.exportDiff(); }
       }).width('100%').height(44)
-      Divider().height(1).color('#E0E0E0')
+      Divider().height(1).color(this.theme.dividerColor)
 
       this.fileImportBar()
 
@@ -111,13 +129,20 @@ struct DiffEditorPage {
 
       if (this.session.diffResult) {
         Row() {
-          Text(`+${this.session.diffResult.stats.addedCount}`).fontSize(11).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
-          Text(` -${this.session.diffResult.stats.deletedCount}`).fontSize(11).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
-          Text(` ~${this.session.diffResult.stats.modifiedCount}`).fontSize(11).fontColor('#D4A017').fontWeight(FontWeight.Medium)
-          Text(`  ${this.session.diffResult.stats.similarityPercent}%`).fontSize(11).fontColor('#999999').layoutWeight(1)
-          Text(`${this.session.diffBlocks.length}块`).fontSize(11).fontColor('#999999')
-        }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
-        .border({ width: { bottom: 1 }, color: '#E0E0E0' })
+          Text(`+${this.session.diffResult.stats.addedCount}`)
+            .fontSize(11).fontColor(this.theme.diffAddedForeground).fontWeight(FontWeight.Medium)
+          Text(` -${this.session.diffResult.stats.deletedCount}`)
+            .fontSize(11).fontColor(this.theme.diffDeletedForeground).fontWeight(FontWeight.Medium)
+            .margin({ left: 8, right: 8 })
+          Text(` ~${this.session.diffResult.stats.modifiedCount}`)
+            .fontSize(11).fontColor(this.theme.diffModifiedGutterBackground).fontWeight(FontWeight.Medium)
+          Text(`  ${this.session.diffResult.stats.similarityPercent}%`)
+            .fontSize(11).fontColor(this.theme.textSecondary).layoutWeight(1)
+          Text(`${this.session.diffBlocks.length}块`)
+            .fontSize(11).fontColor(this.theme.textSecondary)
+        }.width('100%').height(30).padding({ left: 12, right: 12 })
+        .backgroundColor(this.theme.surfaceBackground)
+        .border({ width: { bottom: 1 }, color: this.theme.dividerColor })
       }
 
       if (this.isLargeScreen()) {
@@ -168,14 +193,14 @@ struct DiffEditorPage {
         }
       }
 
-      Divider().height(1).color('#E0E0E0')
+      Divider().height(1).color(this.theme.dividerColor)
       DiffNavigator({
         totalBlocks: this.session.diffBlocks.length, currentIndex: this.navIdx,
         inputPanelVisible: this.inputVisible,
         onNavigateTo: (i: number) => { this.navIdx = i; },
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
-    }.width('100%').height('100%').backgroundColor(this.isMonokai ? '#1E1F1C' : '#F5F5F5')
+    }.width('100%').height('100%').backgroundColor(this.theme.pageBackground)
     .onKeyEvent((event: KeyEvent) => { return this.handleKeyEvent(event); })
   }
 
@@ -183,30 +208,41 @@ struct DiffEditorPage {
   fileImportBar() {
     Row() {
       Button('选择文件A').fontSize(11).height(28).type(ButtonType.Capsule)
-        .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
+        .backgroundColor(this.theme.diffAddedBackground)
+        .fontColor(this.theme.diffAddedForeground)
+        .borderRadius(10).padding({ left: 8, right: 8 })
         .onClick(() => { this.pickFileA(); })
       Button('选择文件B').fontSize(11).height(28).type(ButtonType.Capsule)
-        .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .backgroundColor(this.theme.diffDeletedBackground)
+        .fontColor(this.theme.diffDeletedForeground)
+        .borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
         .onClick(() => { this.pickFileB(); })
       Button('目录对比').fontSize(11).height(28).type(ButtonType.Capsule)
-        .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .backgroundColor(this.btnTheme.primaryBackground)
+        .fontColor(this.btnTheme.primaryForeground)
+        .borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
         .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
       Button('多Tab').fontSize(11).height(28).type(ButtonType.Capsule)
-        .backgroundColor('#FFF3E0').fontColor('#E65100').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .backgroundColor(this.btnTheme.warningBackground)
+        .fontColor(this.btnTheme.warningForeground)
+        .borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
         .onClick(() => { router.pushUrl({ url: 'pages/MultiTabDiffPage' }); })
       if (this.session.fileNameA !== '' || this.session.fileNameB !== '') {
         Text(this.session.fileNameA !== '' ? `A:${this.session.fileNameA}` : '')
-          .fontSize(10).fontColor('#1A7F37').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          .fontSize(10).fontColor(this.theme.diffAddedForeground)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           .margin({ left: 6 })
         Text(this.session.fileNameB !== '' ? `B:${this.session.fileNameB}` : '')
-          .fontSize(10).fontColor('#BE2E2E').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+          .fontSize(10).fontColor(this.theme.diffDeletedForeground)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
           .margin({ left: 6 })
       } else {
         Blank().layoutWeight(1)
       }
     }
     .width('100%').height(36).padding({ left: 8, right: 8 })
-    .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
+    .backgroundColor(this.theme.surfaceBackground)
+    .border({ width: { bottom: 1 }, color: this.theme.dividerColor })
   }
 
   @Builder
@@ -259,9 +295,10 @@ struct DiffEditorPage {
   gapRow(startIdx: number, count: number) {
     Row() {
       Text(`⋮ ${count} 行未变更 ⋮`)
-        .fontSize(11).fontColor('#999999').fontFamily('monospace')
+        .fontSize(11).fontColor(this.theme.textSecondary).fontFamily('monospace')
     }
-    .width('100%').height(22).justifyContent(FlexAlign.Center).backgroundColor('#F0F0F0')
+    .width('100%').height(22).justifyContent(FlexAlign.Center)
+    .backgroundColor(this.theme.diffUnchangedBackground)
     .onClick(() => {
       if (this.collapsedGaps.has(startIdx)) {
         this.collapsedGaps.delete(startIdx);
@@ -275,8 +312,8 @@ struct DiffEditorPage {
   @Builder
   emptyState() {
     Column() {
-      Text('AegisDiff').fontSize(22).fontColor(this.isMonokai ? '#F8F8F2' : '#333333')
-      Text('点击执行对比查看差异').fontSize(13).fontColor('#999999').margin({ top: 8 })
+      Text('AegisDiff').fontSize(22).fontColor(this.theme.textPrimary)
+      Text('点击执行对比查看差异').fontSize(13).fontColor(this.theme.textSecondary).margin({ top: 8 })
     }.width('100%').height('100%').justifyContent(FlexAlign.Center)
   }
 
@@ -350,31 +387,38 @@ struct DiffEditorPage {
     this.navIdx = blockIdx;
   }
 
-  private handleKeyEvent(event: KeyEvent): boolean {
-    if (event.type !== KeyType.Down) return false;
-    if (event.keyCode === 2070) {
-      if (this.session.editState) { this.session.cancelEdit(); return true; }
-      if (this.session.searchVisible) { this.session.hideSearch(); return true; }
-      return false;
-    }
-    if (this.currentBp !== 'lg' && this.currentBp !== 'md') return false;
-
-    if (event.keyCode === 2021) { this.session.runTextDiff(); this.syncStateFromSession(); return true; }
-    if (event.keyCode === 2030) { this.toggleSearch(); return true; }
-    if (event.keyCode === 2037) {
-      if (this.session.diffBlocks.length > 0) {
-        this.session.navigateToNextBlock();
-        this.navIdx = this.session.highlightBlockIndex;
-        this.scrollToBlock(this.session.highlightBlockIndex);
+  private handleKeyEvent(event: KeyEvent): void {
+    if (event.type === KeyType.Down) {
+      switch (event.keyCode) {
+        case KeyCode.KEYCODE_ESCAPE:
+          this.session.cancelEdit();
+          this.session.hideSearch();
+          break;
+        case KeyCode.KEYCODE_CTRL_LEFT:
+        case KeyCode.KEYCODE_CTRL_RIGHT:
+          break;
+        default:
+          if (event.keyCode >= KeyCode.KEYCODE_F1 && event.keyCode <= KeyCode.KEYCODE_F12) break;
+          let ctrl = event.isCtrlPressed;
+          if (ctrl && event.keyCode === KeyCode.KEYCODE_S) {
+            this.session.runTextDiff();
+            this.syncStateFromSession();
+            break;
+          }
+          if (ctrl && event.keyCode === KeyCode.KEYCODE_F) {
+            this.toggleSearch();
+            break;
+          }
+          if (ctrl && event.keyCode === KeyCode.KEYCODE_U) {
+            this.session.switchView(ViewMode.UNIFIED);
+            break;
+          }
+          if (ctrl && event.keyCode === KeyCode.KEYCODE_B) {
+            this.session.switchView(ViewMode.SIDE_BY_SIDE);
+            break;
+          }
       }
-      return true;
     }
-    if (event.keyCode === 2018) {
-      const block = this.session.getHighlightedBlock();
-      if (block) this.session.startEdit(block.startIndex);
-      return true;
-    }
-    return false;
   }
 
   private toggleSearch(): void {
@@ -388,61 +432,68 @@ struct DiffEditorPage {
   private pasteSample(): void {
     this.session.textA = SampleDataProvider.getSampleA();
     this.session.textB = SampleDataProvider.getSampleB();
-    this.session.fileNameA = '';
-    this.session.fileNameB = '';
-    this.session.isFileMode = false;
+    this.session.runTextDiff();
+    this.syncStateFromSession();
+  }
+
+  private async pickFileA(): Promise<void> {
+    try {
+      const uris = await this.pickFile();
+      if (uris.length > 0) {
+        const content = await FileContentService.readTextFile(uris[0]);
+        this.session.textA = content;
+        const name = FileContentService.extractFileName(uris[0]);
+        this.session.fileNameA = name;
+        this.session.isFileMode = true;
+        this.session.runTextDiff();
+        this.syncStateFromSession();
+      }
+    } catch (e) {
+      // user cancelled
+    }
+  }
+
+  private async pickFileB(): Promise<void> {
+    try {
+      const uris = await this.pickFile();
+      if (uris.length > 0) {
+        const content = await FileContentService.readTextFile(uris[0]);
+        this.session.textB = content;
+        const name = FileContentService.extractFileName(uris[0]);
+        this.session.fileNameB = name;
+        this.session.isFileMode = true;
+        this.session.runTextDiff();
+        this.syncStateFromSession();
+      }
+    } catch (e) {
+      // user cancelled
+    }
+  }
+
+  private async pickFile(): Promise<string[]> {
+    const docPicker = new picker.DocumentViewPicker();
+    const result = await docPicker.select();
+    if (result && result.length > 0) {
+      return result;
+    }
+    return [];
   }
 
   private exportDiff(): void {
-    const text = this.session.generateUnifiedDiff();
-    if (!text) {
-      AlertDialog.show({ title: '无差异数据', message: '请先执行比较', autoCancel: true });
-      return;
+    if (!this.session.diffResult) return;
+    const lines = this.session.diffResult.unifiedLines;
+    let exportText = '';
+    for (const line of lines) {
+      let prefix = ' ';
+      switch (line.type) {
+        case 0: prefix = ' '; break;
+        case 1: prefix = '-'; break;
+        case 2: prefix = '+'; break;
+        case 3: prefix = '~'; break;
+      }
+      exportText += `${prefix} ${line.content}\n`;
     }
-    this.session.copyToClipboard(text, () => {
-      AlertDialog.show({
-        title: '导出成功',
-        message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`,
-        autoCancel: true
-      });
-    });
-  }
-
-  private pickFileA(): void {
-    try {
-      let context = getContext(this);
-      const opts = new picker.DocumentSelectOptions();
-      opts.maxSelectNumber = 1;
-      const docPicker = new picker.DocumentViewPicker(context);
-      docPicker.select(opts).then((uris: string[]) => {
-        if (uris.length > 0) {
-          const result = FileContentService.readFileContent(uris[0]);
-          this.session.textA = result.content;
-          this.session.fileNameA = result.fileName;
-          if (result.error) {
-            AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-          }
-        }
-      });
-    } catch (e) { /* ignore */ }
-  }
-
-  private pickFileB(): void {
-    try {
-      let context = getContext(this);
-      const opts = new picker.DocumentSelectOptions();
-      opts.maxSelectNumber = 1;
-      const docPicker = new picker.DocumentViewPicker(context);
-      docPicker.select(opts).then((uris: string[]) => {
-        if (uris.length > 0) {
-          const result = FileContentService.readFileContent(uris[0]);
-          this.session.textB = result.content;
-          this.session.fileNameB = result.fileName;
-          if (result.error) {
-            AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-          }
-        }
-      });
-    } catch (e) { /* ignore */ }
+    // Clipboard paste via system copy
+    AppStorage.setOrCreate('exportDiffText', exportText);
   }
 }

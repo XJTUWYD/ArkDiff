@@ -8,6 +8,12 @@
  * - 提供文件元数据（名称、大小、行数）
  * - 大文件阈值警告
  *
+ * 编码支持现状：
+ * - UTF-8 / BOM：已支持（util.TextDecoder）
+ * - ASCII / Latin-1：UTF-8 解码失败时回退逐字节读取
+ * - GBK / GB18030 / Shift-JIS：尚未支持，计划在 V0.3+ 引入编码检测
+ *   与转码能力（需评估 HarmonyOS 平台 encoding API 可用性）
+ *
  * 页面禁止直接调用 fs.read / String.fromCharCode，必须通过此服务。
  */
 import { fileIo as fs } from '@kit.CoreFileKit';
