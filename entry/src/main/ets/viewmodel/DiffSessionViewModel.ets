@@ -483,7 +483,6 @@ export class DiffSessionViewModel {
     this.undoStack = [];
     this.redoStack = [];
   }
-  }
 
   // ==================== 行内编辑 ====================
 

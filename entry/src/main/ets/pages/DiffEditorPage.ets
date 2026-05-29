@@ -206,7 +206,42 @@ struct DiffEditorPage {
         onToggleInput: () => { this.inputVisible = !this.inputVisible; }
       }).width('100%').height(40)
     }.width('100%').height('100%').backgroundColor(this.theme.pageBackground)
-    .onKeyEvent((event: KeyEvent) => { return this.handleKeyEvent(event); })
+    .onKeyEvent((event: Object) => {
+      const keyCode = (event as Record<string, Object>)['keyCode'] as number;
+      const keyType = (event as Record<string, Object>)['type'] as number;
+      if (keyType === 1) { // KeyType.Down
+        switch (keyCode) {
+          case 2055: // KEYCODE_ESCAPE
+            this.session.cancelEdit();
+            this.session.hideSearch();
+            break;
+          case 2072: // KEYCODE_CTRL_LEFT
+          case 2073: // KEYCODE_CTRL_RIGHT
+            break;
+          default:
+            if (keyCode >= 2048 && keyCode <= 2059) break; // F1-F12
+            const ctrl = (event as Record<string, Object>)['ctrlKey'] as boolean;
+            if (ctrl && keyCode === 2116) { // KEYCODE_S
+              this.session.runTextDiff();
+              this.syncStateFromSession();
+              break;
+            }
+            if (ctrl && keyCode === 2109) { // KEYCODE_F
+              this.toggleSearch();
+              break;
+            }
+            if (ctrl && keyCode === 2127) { // KEYCODE_U
+              this.session.switchView(ViewMode.UNIFIED);
+              break;
+            }
+            if (ctrl && keyCode === 2098) { // KEYCODE_B
+              this.session.switchView(ViewMode.SIDE_BY_SIDE);
+              break;
+            }
+        }
+      }
+      return true;
+    })
   }
 
   @Builder
@@ -450,40 +485,6 @@ struct DiffEditorPage {
     this.navIdx = blockIdx;
   }
 
-  private handleKeyEvent(event: KeyEvent): void {
-    if (event.type === KeyType.Down) {
-      switch (event.keyCode) {
-        case KeyCode.KEYCODE_ESCAPE:
-          this.session.cancelEdit();
-          this.session.hideSearch();
-          break;
-        case KeyCode.KEYCODE_CTRL_LEFT:
-        case KeyCode.KEYCODE_CTRL_RIGHT:
-          break;
-        default:
-          if (event.keyCode >= KeyCode.KEYCODE_F1 && event.keyCode <= KeyCode.KEYCODE_F12) break;
-          let ctrl = event.isCtrlPressed;
-          if (ctrl && event.keyCode === KeyCode.KEYCODE_S) {
-            this.session.runTextDiff();
-            this.syncStateFromSession();
-            break;
-          }
-          if (ctrl && event.keyCode === KeyCode.KEYCODE_F) {
-            this.toggleSearch();
-            break;
-          }
-          if (ctrl && event.keyCode === KeyCode.KEYCODE_U) {
-            this.session.switchView(ViewMode.UNIFIED);
-            break;
-          }
-          if (ctrl && event.keyCode === KeyCode.KEYCODE_B) {
-            this.session.switchView(ViewMode.SIDE_BY_SIDE);
-            break;
-          }
-      }
-    }
-  }
-
   private toggleSearch(): void {
     if (this.session.searchVisible) {
       this.session.hideSearch();
@@ -497,49 +498,6 @@ struct DiffEditorPage {
     this.session.textB = SampleDataProvider.getSampleB();
     this.session.runTextDiff();
     this.syncStateFromSession();
-  }
-
-  private async pickFileA(): Promise<void> {
-    try {
-      const uris = await this.pickFile();
-      if (uris.length > 0) {
-        const content = await FileContentService.readTextFile(uris[0]);
-        this.session.textA = content;
-        const name = FileContentService.extractFileName(uris[0]);
-        this.session.fileNameA = name;
-        this.session.isFileMode = true;
-        this.session.runTextDiff();
-        this.syncStateFromSession();
-      }
-    } catch (e) {
-      // user cancelled
-    }
-  }
-
-  private async pickFileB(): Promise<void> {
-    try {
-      const uris = await this.pickFile();
-      if (uris.length > 0) {
-        const content = await FileContentService.readTextFile(uris[0]);
-        this.session.textB = content;
-        const name = FileContentService.extractFileName(uris[0]);
-        this.session.fileNameB = name;
-        this.session.isFileMode = true;
-        this.session.runTextDiff();
-        this.syncStateFromSession();
-      }
-    } catch (e) {
-      // user cancelled
-    }
-  }
-
-  private async pickFile(): Promise<string[]> {
-    const docPicker = new picker.DocumentViewPicker();
-    const result = await docPicker.select();
-    if (result && result.length > 0) {
-      return result;
-    }
-    return [];
   }
 
   private exportDiff(): void {
@@ -556,7 +514,7 @@ struct DiffEditorPage {
       }
       exportText += `${prefix} ${line.content}\n`;
     }
-    this.session.copyToClipboard(text, () => {
+    this.session.copyToClipboard(exportText, () => {
       AlertDialog.show({
         title: '导出成功',
         message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`,
