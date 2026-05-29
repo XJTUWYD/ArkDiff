@@ -112,7 +112,7 @@ export struct UnifiedLineRenderer {
             .fontColor(seg.type === 1 ? this.getTheme().charAddedColor : this.getTheme().contentColor)
         }, (seg: CharSegment, idx: number) => `seg_${idx}`)
       }
-      .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
+      .padding({ left: 6 })
     } else {
       this.syntaxText()
     }
@@ -127,7 +127,7 @@ export struct UnifiedLineRenderer {
           .fontColor(TokenHighlighter.getTokenColor(tok.type, this.isMonokai))
       }, (tok: Token, _idx: number) => `tk_${_idx}`)
     }
-    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 6 })
+    .padding({ left: 6 })
   }
 
   private getTheme(): LineTheme {

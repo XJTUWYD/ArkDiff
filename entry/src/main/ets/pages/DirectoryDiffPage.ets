@@ -17,11 +17,14 @@
  *   - 过滤：忽略相同文件
  *   - 文件读取统一走 FileContentService
  *   - 点击文件直接跳转 DiffEditorPage
+ *   - 相似度计算使用 DiffEngine.computeDiff
  */
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { FileContentService, FileContent } from '../services/FileContentService';
 import { ThemeColors } from '../utils/ThemeColors';
+import { DiffEngine } from '../engine/DiffEngine';
+import { DiffOptions } from '../model/DiffModels';
 
 /** 文件差异状态 */
 enum FileStatus {
@@ -575,13 +578,16 @@ struct DirectoryDiffPage {
   }
 
   private calcSimilarity(a: string, b: string): number {
-    const la = a.split('\n'); const lb = b.split('\n');
-    let same = 0;
-    const max = Math.max(la.length, lb.length);
-    for (let i = 0; i < max; i++) {
-      if (i < la.length && i < lb.length && la[i] === lb[i]) same++;
+    if (a === b) return 100;
+    if (a.length === 0 || b.length === 0) return 0;
+    const options: DiffOptions = { ignoreBlankLines: false, enableCharDiff: false };
+    try {
+      const result = DiffEngine.computeDiff(a, b, options);
+      return Math.round(result.stats.similarityPercent * 10) / 10;
+    } catch (e) {
+      console.error('DirectoryDiffPage: DiffEngine similarity calc failed, using fallback');
+      return 0;
     }
-    return max > 0 ? Math.round(same / max * 1000) / 10 : 100;
   }
 
   private formatSize(bytes: number): string {

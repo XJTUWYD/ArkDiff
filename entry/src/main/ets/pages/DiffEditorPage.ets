@@ -8,7 +8,7 @@
  * 文件读取：FileContentService
  */
 import { router } from '@kit.ArkUI';
-import { picker } from '@kit.CoreFileKit';
+import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
@@ -73,8 +73,7 @@ struct DiffEditorPage {
       AppStorage.delete('dirDiffContentB');
       AppStorage.delete('dirDiffNameA');
       AppStorage.delete('dirDiffNameB');
-      this.session.runTextDiff();
-      this.syncStateFromSession();
+      this.runDiffAndSync();
     } else {
       this.session.textA = SampleDataProvider.getSampleA();
       this.session.textB = SampleDataProvider.getSampleB();
@@ -103,8 +102,7 @@ struct DiffEditorPage {
       DiffToolbar({
         viewMode: this.session.viewMode, isComputing: this.session.isComputing,
         searchActive: this.session.searchVisible,
-        onRunDiff: () => { this.session.runTextDiff();
-        this.syncStateFromSession(); },
+        onRunDiff: () => { this.runDiffAndSync(); },
         onSwitchView: (m: ViewMode) => { this.session.switchView(m); },
         onPasteSample: () => { this.pasteSample(); },
         onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
@@ -114,8 +112,29 @@ struct DiffEditorPage {
       }).width('100%').height(44)
       Divider().height(1).color(this.theme.dividerColor)
 
-      this.fileImportBar()
-
+      Scroll() {
+        Row() {
+          Button('选择文件A').fontSize(11).height(28).type(ButtonType.Capsule)
+            .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
+            .onClick(() => { this.pickFileA(); })
+          Button('选择文件B').fontSize(11).height(28).type(ButtonType.Capsule)
+            .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+            .onClick(() => { this.pickFileB(); })
+          Button('目录对比').fontSize(11).height(28).type(ButtonType.Capsule)
+            .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+            .onClick(() => { router.pushUrl({ url: 'pages/DirectoryDiffPage' }); })
+          Button('多Tab').fontSize(11).height(28).type(ButtonType.Capsule)
+            .backgroundColor('#FFF3E0').fontColor('#E65100').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+            .onClick(() => { router.pushUrl({ url: 'pages/MultiTabDiffPage' }); })
+          Button('💾 保存').fontSize(11).height(28).type(ButtonType.Capsule)
+            .backgroundColor('#F3E5F5').fontColor('#7B1FA2').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+            .onClick(() => { this.saveDiffToFile(); })
+        }.padding({ left: 8, right: 8 })
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%').height(36)
+      .backgroundColor('#FFFFFF').border({ width: { bottom: 1 }, color: '#E0E0E0' })
       if (this.session.searchVisible && this.session.diffResult) {
         DiffSearchBar({
           totalMatches: this.session.totalSearchResults,
@@ -128,21 +147,7 @@ struct DiffEditorPage {
       }
 
       if (this.session.diffResult) {
-        Row() {
-          Text(`+${this.session.diffResult.stats.addedCount}`)
-            .fontSize(11).fontColor(this.theme.diffAddedForeground).fontWeight(FontWeight.Medium)
-          Text(` -${this.session.diffResult.stats.deletedCount}`)
-            .fontSize(11).fontColor(this.theme.diffDeletedForeground).fontWeight(FontWeight.Medium)
-            .margin({ left: 8, right: 8 })
-          Text(` ~${this.session.diffResult.stats.modifiedCount}`)
-            .fontSize(11).fontColor(this.theme.diffModifiedGutterBackground).fontWeight(FontWeight.Medium)
-          Text(`  ${this.session.diffResult.stats.similarityPercent}%`)
-            .fontSize(11).fontColor(this.theme.textSecondary).layoutWeight(1)
-          Text(`${this.session.diffBlocks.length}块`)
-            .fontSize(11).fontColor(this.theme.textSecondary)
-        }.width('100%').height(30).padding({ left: 12, right: 12 })
-        .backgroundColor(this.theme.surfaceBackground)
-        .border({ width: { bottom: 1 }, color: this.theme.dividerColor })
+        this.diffStatsBar()
       }
 
       if (this.isLargeScreen()) {
@@ -248,46 +253,38 @@ struct DiffEditorPage {
   @Builder
   diffContentArea() {
     if (this.session.viewMode === ViewMode.UNIFIED) {
-      Column() {
-        ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
-          if (item.kind === 1) {
-            this.gapRow(item.lineIdx, item.gapCount)
-          } else {
-            UnifiedLineRenderer({
-              typeNum: this.session.diffResult!.unifiedLines[item.lineIdx].type,
-              content: this.session.diffResult!.unifiedLines[item.lineIdx].content,
-              linenoA: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberA,
-              linenoB: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberB,
-              isMonokai: this.isMonokai,
-              isSearchMatch: this.session.isLineSearchMatch(item.lineIdx),
-              isHighlighted: this.session.isLineInHighlightedBlock(item.lineIdx),
-              charSegments: this.session.diffResult!.unifiedLines[item.lineIdx].charSegments,
-              isEditing: this.session.isEditing(item.lineIdx),
-              editBuffer: $editBuffer,
-              onLineClick: () => { this.session.startEdit(item.lineIdx); },
-              onEditSubmit: (v: string) => { this.session.submitEdit(v);
-              this.syncStateFromSession(); },
-              onEditCancel: () => { this.session.cancelEdit(); }
-            })
-          }
-        }, (item: DisplayItem, idx: number) => `ud_${idx}`)
+      // 使用单个可同时滚动方向(Free)的 Scroll，避免嵌套滚动冲突。
+      // 之前外层是垂直 Scroll + 内层是水平 Scroll，两者会抢夺滑动手势。
+      Scroll() {
+        Column() {
+          ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
+            if (item.kind === 1) {
+              this.gapRow(item.lineIdx, item.gapCount)
+            } else {
+              UnifiedLineRenderer({
+                typeNum: this.session.diffResult!.unifiedLines[item.lineIdx].type,
+                content: this.session.diffResult!.unifiedLines[item.lineIdx].content,
+                linenoA: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberA,
+                linenoB: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberB,
+                isMonokai: this.isMonokai,
+                isSearchMatch: this.session.isLineSearchMatch(item.lineIdx),
+                isHighlighted: this.session.isLineInHighlightedBlock(item.lineIdx),
+                charSegments: this.session.diffResult!.unifiedLines[item.lineIdx].charSegments,
+                isEditing: this.session.isEditing(item.lineIdx),
+                editBuffer: $editBuffer,
+                onLineClick: () => { this.session.startEdit(item.lineIdx); },
+                onEditSubmit: (v: string) => { this.session.submitEdit(v);
+                this.syncStateFromSession(); },
+                onEditCancel: () => { this.session.cancelEdit(); }
+              })
+            }
+          }, (item: DisplayItem, idx: number) => `ud_${idx}`)
+        }.alignItems(HorizontalAlign.Start)
       }
+      .scrollable(ScrollDirection.Free)
+      .scrollBar(BarState.Auto)
     } else {
-      Column() {
-        ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
-          SideBySideRenderer({
-            leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-            rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-            isMonokai: this.isMonokai,
-            isSearchMatch: this.session.isLineSearchMatch(i),
-            isHighlighted: this.session.isLineInHighlightedBlock(i),
-            onSyncToRight: () => { this.session.syncToRight(i);
-            this.syncStateFromSession(); },
-            onSyncToLeft: () => { this.session.syncToLeft(i);
-            this.syncStateFromSession(); }
-          })
-        }, (p: SbsPair, i: number) => `s_${i}`)
-      }
+      this.sideBySideView()
     }
   }
 
@@ -310,6 +307,58 @@ struct DiffEditorPage {
   }
 
   @Builder
+  diffStatsBar() {
+    Row() {
+      Text(`+${this.session.diffResult!.stats.addedCount}`).fontSize(11).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
+      Text(` -${this.session.diffResult!.stats.deletedCount}`).fontSize(11).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
+      Text(` ~${this.session.diffResult!.stats.modifiedCount}`).fontSize(11).fontColor('#D4A017').fontWeight(FontWeight.Medium)
+      Text(`  ${this.session.diffResult!.stats.similarityPercent}%`).fontSize(11).fontColor('#999999').layoutWeight(1)
+      Text(`${this.session.diffBlocks.length}块`).fontSize(11).fontColor('#999999')
+    }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
+    .border({ width: { bottom: 1 }, color: '#E0E0E0' })
+  }
+
+  @Builder
+  sideBySideView() {
+    Column() {
+      ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+        SideBySideRenderer({
+          leftType: p.leftType,
+          leftContent: p.leftContent,
+          leftLineNo: p.leftLineNo,
+          rightType: p.rightType,
+          rightContent: p.rightContent,
+          rightLineNo: p.rightLineNo,
+          isMonokai: this.isMonokai,
+          isSearchMatch: this.session.isLineSearchMatch(i),
+          isHighlighted: this.session.isLineInHighlightedBlock(i),
+          isLeftEditing: this.session.isSideEditing(i, 'left'),
+          isRightEditing: this.session.isSideEditing(i, 'right'),
+          sideEditBuffer: $editBuffer,
+          onSyncToRight: () => { this.session.syncToRight(i); this.syncStateFromSession(); },
+          onSyncToLeft: () => { this.session.syncToLeft(i); this.syncStateFromSession(); },
+          onLeftClick: () => {
+            if (!this.session.isSideEditing(i, 'left')) {
+              this.editBuffer = p.leftContent;
+              this.session.startSideEdit(i, 'left');
+            }
+          },
+          onRightClick: () => {
+            if (!this.session.isSideEditing(i, 'right')) {
+              this.editBuffer = p.rightContent;
+              this.session.startSideEdit(i, 'right');
+            }
+          },
+          onLeftEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncStateFromSession(); },
+          onRightEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncStateFromSession(); },
+          onLeftEditCancel: () => { this.session.cancelSideEdit(); },
+          onRightEditCancel: () => { this.session.cancelSideEdit(); }
+        })
+      }, (p: SbsPair, i: number) => `sbs_${i}`)
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   emptyState() {
     Column() {
       Text('AegisDiff').fontSize(22).fontColor(this.theme.textPrimary)
@@ -318,6 +367,20 @@ struct DiffEditorPage {
   }
 
   private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
+
+  /** 执行 diff 并在失败时弹窗 */
+  private runDiffAndSync(): void {
+    this.session.runTextDiff();
+    this.syncStateFromSession();
+    if (this.session.lastError) {
+      AlertDialog.show({
+        title: 'Diff 执行失败',
+        message: this.session.lastError,
+        autoCancel: true,
+        confirm: { value: '确定', action: () => {} }
+      });
+    }
+  }
 
   /** 从 session 同步显示状态 */
   private syncStateFromSession(): void {
@@ -493,7 +556,104 @@ struct DiffEditorPage {
       }
       exportText += `${prefix} ${line.content}\n`;
     }
-    // Clipboard paste via system copy
-    AppStorage.setOrCreate('exportDiffText', exportText);
+    this.session.copyToClipboard(text, () => {
+      AlertDialog.show({
+        title: '导出成功',
+        message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`,
+        autoCancel: true
+      });
+    });
+  }
+
+  private pickFileA(): void {
+    try {
+      let context = getContext(this);
+      const opts = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      const docPicker = new picker.DocumentViewPicker(context);
+      docPicker.select(opts).then((uris: string[]) => {
+        if (uris.length > 0) {
+          try {
+            const result = FileContentService.readFileContent(uris[0]);
+            this.session.textA = result.content;
+            this.session.fileNameA = result.fileName;
+            if (result.error) {
+              AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
+            }
+            if (this.session.textA.length > 0 && this.session.textB.length > 0) {
+              this.runDiffAndSync();
+            }
+          } catch (e2) {
+            console.error('DiffEditorPage.pickFileA.readFileContent error:', JSON.stringify(e2));
+            AlertDialog.show({ title: '读取失败', message: '无法读取所选文件，文件可能过大或格式不支持', autoCancel: true });
+          }
+        }
+      }).catch((reason: Object) => {
+        console.error('DiffEditorPage.pickFileA Promise rejected:', JSON.stringify(reason));
+        AlertDialog.show({ title: '选择文件失败', message: '文件选择器异常，请重试', autoCancel: true });
+      });
+    } catch (e) {
+      console.error('DiffEditorPage.pickFileA caught:', JSON.stringify(e));
+    }
+  }
+
+  private saveDiffToFile(): void {
+    const diffText = this.session.generateUnifiedDiff();
+    if (!diffText) {
+      AlertDialog.show({ title: '无差异', message: '请先执行对比', autoCancel: true });
+      return;
+    }
+    try {
+      let context = getContext(this);
+      let filePicker = new picker.DocumentViewPicker(context);
+      let saveOpts = new picker.DocumentSaveOptions();
+      saveOpts.newFileNames = ['diff_output.patch'];
+      filePicker.save(saveOpts).then((uris: string[]) => {
+        if (uris.length > 0) {
+          try {
+            let file = fs.openSync(uris[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
+            fs.writeSync(file.fd, diffText);
+            fs.closeSync(file);
+            AlertDialog.show({ title: '保存成功', message: `差异已保存到文件`, autoCancel: true });
+          } catch (err) {
+            AlertDialog.show({ title: '保存失败', message: '无法写入文件', autoCancel: true });
+          }
+        }
+      });
+    } catch (e) {
+      AlertDialog.show({ title: '保存失败', message: '导出文件时出错', autoCancel: true });
+    }
+  }
+
+  private pickFileB(): void {
+    try {
+      let context = getContext(this);
+      const opts = new picker.DocumentSelectOptions();
+      opts.maxSelectNumber = 1;
+      const docPicker = new picker.DocumentViewPicker(context);
+      docPicker.select(opts).then((uris: string[]) => {
+        if (uris.length > 0) {
+          try {
+            const result = FileContentService.readFileContent(uris[0]);
+            this.session.textB = result.content;
+            this.session.fileNameB = result.fileName;
+            if (result.error) {
+              AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
+            }
+            if (this.session.textA.length > 0 && this.session.textB.length > 0) {
+              this.runDiffAndSync();
+            }
+          } catch (e2) {
+            console.error('DiffEditorPage.pickFileB.readFileContent error:', JSON.stringify(e2));
+            AlertDialog.show({ title: '读取失败', message: '无法读取所选文件，文件可能过大或格式不支持', autoCancel: true });
+          }
+        }
+      }).catch((reason: Object) => {
+        console.error('DiffEditorPage.pickFileB Promise rejected:', JSON.stringify(reason));
+        AlertDialog.show({ title: '选择文件失败', message: '文件选择器异常，请重试', autoCancel: true });
+      });
+    } catch (e) {
+      console.error('DiffEditorPage.pickFileB caught:', JSON.stringify(e));
+    }
   }
 }

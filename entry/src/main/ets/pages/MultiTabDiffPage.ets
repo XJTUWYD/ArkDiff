@@ -105,7 +105,7 @@ struct MultiTabDiffPage {
   private idCounter: number = 1;
 
   // 当前 Tab 的 diff 状态
-  @State viewMode: ViewMode = ViewMode.UNIFIED;
+  @State viewMode: ViewMode = ViewMode.SIDE_BY_SIDE;
   @State inputVisible: boolean = true;
   @State navIdx: number = 0;
   @State added: number = 0; @State deleted: number = 0; @State modified: number = 0;

@@ -11,7 +11,12 @@
  *   - 文件（通过 FileContentService）
  */
 import pasteboard from '@ohos.pasteboard';
-import { DiffChunk, ChunkType, DiffLineModel, DiffLineType } from '../model/DiffModels';
+import {
+  DiffChunk,
+  DiffChunkType,
+  DiffLine,
+  DiffType
+} from '../model/DiffModels';
 
 /** 导出选项 */
 export interface ExportOptions {
@@ -37,8 +42,8 @@ export class PatchExporter {
    */
   static generateUnifiedDiff(
     chunks: DiffChunk[],
-    linesA: DiffLineModel[],
-    linesB: DiffLineModel[],
+    linesA: DiffLine[],
+    linesB: DiffLine[],
     options?: ExportOptions
   ): string {
     const opt = { ...DEFAULT_EXPORT_OPTIONS, ...options };
@@ -50,7 +55,7 @@ export class PatchExporter {
 
     // 处理每个 chunk
     for (const chunk of chunks) {
-      if (chunk.type === ChunkType.UNCHANGED) continue;
+      if (chunk.chunkType === DiffChunkType.EQUAL) continue;
 
       // 计算 hunk header
       const hunkHeader = this.buildHunkHeader(chunk, linesA, linesB, opt.contextLines);
@@ -74,7 +79,7 @@ export class PatchExporter {
   static generateFromRawDiff(
     oldText: string,
     newText: string,
-    diffLines: DiffLineModel[],
+    diffLines: DiffLine[],
     options?: ExportOptions
   ): string {
     const opt = { ...DEFAULT_EXPORT_OPTIONS, ...options };
@@ -100,19 +105,19 @@ export class PatchExporter {
       let newNum = 0;
 
       switch (dline.type) {
-        case DiffLineType.DELETED:
+        case DiffType.DELETED:
           prefix = '-';
           oldNum = oldLineNum++;
           break;
-        case DiffLineType.ADDED:
+        case DiffType.ADDED:
           prefix = '+';
           newNum = newLineNum++;
           break;
-        case DiffLineType.MODIFIED:
+        case DiffType.MODIFIED:
           // 先输出删除行再新增行
           if (inHunk) {
             hunkContext.push(`-${dline.oldContent || dline.content}`);
-            hunkContext.push(`+${dline.newContent || dline.content}`);
+            hunkContext.push(`+${dline.content}`);
           } else {
             // 作为单独 hunk 处理
             inHunk = true;
@@ -120,7 +125,7 @@ export class PatchExporter {
             hunkNewStart = newLineNum;
             hunkContext = [
               `-${dline.oldContent || dline.content}`,
-              `+${dline.newContent || dline.content}`
+              `+${dline.content}`
             ];
             oldLineNum++;
             newLineNum++;
@@ -132,7 +137,7 @@ export class PatchExporter {
           break;
       }
 
-      if (inHunk && (dline.type === DiffLineType.UNCHANGED || i === diffLines.length - 1)) {
+      if (inHunk && (dline.type === DiffType.UNCHANGED || i === diffLines.length - 1)) {
         // 输出 hunk
         lines.push(`@@ -${hunkOldStart},${hunkContext.filter(l => l.startsWith('-')).length} +${hunkNewStart},${hunkContext.filter(l => l.startsWith('+')).length} @@`);
         for (const hl of hunkContext) lines.push(hl);
@@ -164,18 +169,18 @@ export class PatchExporter {
     let unchanged = 0;
 
     for (const chunk of chunks) {
-      switch (chunk.type) {
-        case ChunkType.ADDED:
-          added += chunk.linesB.length;
+      switch (chunk.chunkType) {
+        case DiffChunkType.INSERT:
+          added += chunk.countB;
           break;
-        case ChunkType.DELETED:
-          deleted += chunk.linesA.length;
+        case DiffChunkType.DELETE:
+          deleted += chunk.countA;
           break;
-        case ChunkType.MODIFIED:
-          modified += Math.max(chunk.linesA.length, chunk.linesB.length);
+        case DiffChunkType.REPLACE:
+          modified += Math.max(chunk.countA, chunk.countB);
           break;
-        case ChunkType.UNCHANGED:
-          unchanged += chunk.linesA.length;
+        case DiffChunkType.EQUAL:
+          unchanged += chunk.countA;
           break;
       }
     }
@@ -215,8 +220,8 @@ Total:      ${added + deleted + modified + unchanged} lines`;
    */
   static exportUnifiedToClipboard(
     chunks: DiffChunk[],
-    linesA: DiffLineModel[],
-    linesB: DiffLineModel[],
+    linesA: DiffLine[],
+    linesB: DiffLine[],
     options?: ExportOptions
   ): void {
     const patch = this.generateUnifiedDiff(chunks, linesA, linesB, options);
@@ -227,14 +232,14 @@ Total:      ${added + deleted + modified + unchanged} lines`;
 
   private static buildHunkHeader(
     chunk: DiffChunk,
-    linesA: DiffLineModel[],
-    linesB: DiffLineModel[],
+    linesA: DiffLine[],
+    linesB: DiffLine[],
     contextLines: number
   ): string | null {
     const startA = Math.max(0, chunk.startA - contextLines);
     const startB = Math.max(0, chunk.startB - contextLines);
-    const countA = chunk.endA - chunk.startA + contextLines * 2;
-    const countB = chunk.endB - chunk.startB + contextLines * 2;
+    const countA = chunk.countA + contextLines * 2;
+    const countB = chunk.countB + contextLines * 2;
 
     if (countA <= 0 && countB <= 0) return null;
 
@@ -243,8 +248,8 @@ Total:      ${added + deleted + modified + unchanged} lines`;
 
   private static buildHunkLines(
     chunk: DiffChunk,
-    linesA: DiffLineModel[],
-    linesB: DiffLineModel[],
+    linesA: DiffLine[],
+    linesB: DiffLine[],
     contextLines: number
   ): string[] {
     const result: string[] = [];
@@ -255,30 +260,30 @@ Total:      ${added + deleted + modified + unchanged} lines`;
     }
 
     // 差异行
-    if (chunk.type === ChunkType.DELETED) {
-      for (let i = chunk.startA; i < chunk.endA; i++) {
+    if (chunk.chunkType === DiffChunkType.DELETE) {
+      for (let i = chunk.startA; i < chunk.startA + chunk.countA; i++) {
         if (i < linesA.length) result.push(`-${linesA[i].content}`);
       }
       // 后置上下文
-      for (let i = chunk.endA; i < Math.min(linesA.length, chunk.endA + contextLines); i++) {
+      for (let i = chunk.startA + chunk.countA; i < Math.min(linesA.length, chunk.startA + chunk.countA + contextLines); i++) {
         if (i < linesA.length) result.push(` ${linesA[i].content}`);
       }
-    } else if (chunk.type === ChunkType.ADDED) {
-      for (let i = chunk.startB; i < chunk.endB; i++) {
+    } else if (chunk.chunkType === DiffChunkType.INSERT) {
+      for (let i = chunk.startB; i < chunk.startB + chunk.countB; i++) {
         if (i < linesB.length) result.push(`+${linesB[i].content}`);
       }
-      for (let i = chunk.endB; i < Math.min(linesB.length, chunk.endB + contextLines); i++) {
+      for (let i = chunk.startB + chunk.countB; i < Math.min(linesB.length, chunk.startB + chunk.countB + contextLines); i++) {
         if (i < linesB.length) result.push(` ${linesB[i].content}`);
       }
-    } else if (chunk.type === ChunkType.MODIFIED) {
-      for (let i = chunk.startA; i < chunk.endA; i++) {
+    } else if (chunk.chunkType === DiffChunkType.REPLACE) {
+      for (let i = chunk.startA; i < chunk.startA + chunk.countA; i++) {
         if (i < linesA.length) result.push(`-${linesA[i].content}`);
       }
-      for (let i = chunk.startB; i < chunk.endB; i++) {
+      for (let i = chunk.startB; i < chunk.startB + chunk.countB; i++) {
         if (i < linesB.length) result.push(`+${linesB[i].content}`);
       }
       // 后置上下文
-      for (let i = chunk.endA; i < Math.min(linesA.length, chunk.endA + contextLines); i++) {
+      for (let i = chunk.startA + chunk.countA; i < Math.min(linesA.length, chunk.startA + chunk.countA + contextLines); i++) {
         if (i < linesA.length) result.push(` ${linesA[i].content}`);
       }
     }

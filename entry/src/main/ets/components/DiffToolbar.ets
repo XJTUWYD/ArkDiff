@@ -5,7 +5,7 @@ import { ViewMode } from '../model/DiffModels';
 
 @Component
 export struct DiffToolbar {
-  @Prop viewMode: ViewMode = ViewMode.UNIFIED;
+  @Prop viewMode: ViewMode = ViewMode.SIDE_BY_SIDE;
   @Prop isComputing: boolean = false;
   @Prop searchActive: boolean = false;
   onRunDiff: () => void = () => {};

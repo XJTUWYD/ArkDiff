@@ -26,7 +26,7 @@ export class DiffViewModel {
   diffResult: DiffResult | null = null;
 
   // ========== 视图状态 ==========
-  viewMode: ViewMode = ViewMode.UNIFIED;
+  viewMode: ViewMode = ViewMode.SIDE_BY_SIDE;
   currentDiffBlockIndex: number = 0;
   isComputing: boolean = false;
   inputPanelVisible: boolean = true;
