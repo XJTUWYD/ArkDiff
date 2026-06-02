@@ -1,4 +1,4 @@
-# AegisDiff — 鸿蒙代码差异对比工具
+# ArkDiff — 鸿蒙代码差异对比工具
 
 > 纯 ArkTS + ArkUI + NAPI(C++) | HarmonyOS 5.0+
 
