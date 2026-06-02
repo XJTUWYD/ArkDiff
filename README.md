@@ -171,6 +171,19 @@ entry/src/main/
 | O(n²)→O(n) | `backtrack` unshift → push + reverse |
 | mergeAdjacent 单次遍历 | 消除中间数组分配 |
 
+## 参与贡献
+
+欢迎提交 Pull Request，一起完善这个项目。可以从以下方向入手：
+
+- 🐛 修复已知 Bug
+- ✨ 新增语言语法高亮（在 `TokenHighlighter.ets` 添加关键词集）
+- 🎨 贡献新主题配色（在 `ThemeTokens.ets` 参考 `getMonokaiColors` 模板）
+- ⚡ NAPI C++ 性能优化（`myers_diff.cpp`）
+- 📱 折叠屏 / 竖屏适配增强
+- 🧪 补充单元测试（`src/test/`目录）
+
+PR 前请确保 `entry` 模块编译通过（DevEco Studio → Build → Make Module）。
+
 ## License
 
 MIT
