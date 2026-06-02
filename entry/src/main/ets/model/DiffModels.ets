@@ -113,24 +113,6 @@ export interface DiffChunk {
   lines: DiffLine[];
 }
 
-/** 合并冲突块（三方合并用） */
-export interface MergeConflictChunk {
-  /** 冲突起始行号 */
-  startLine: number;
-  /** 冲突行数 */
-  length: number;
-  /** 基础版本内容 */
-  baseContent: string[];
-  /** 我的版本内容 */
-  mineContent: string[];
-  /** 他人的版本内容 */
-  theirsContent: string[];
-  /** 当前解决方式：'mine' | 'theirs' | 'both' | 'unresolved' | 'edited' */
-  resolution: string;
-  /** 用户手动编辑后的内容 */
-  editedContent: string;
-}
-
 /** 目录对比条目 */
 export interface DirectoryDiffEntry {
   /** 相对路径 */

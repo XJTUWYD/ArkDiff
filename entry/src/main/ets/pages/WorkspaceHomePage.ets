@@ -20,26 +20,20 @@ struct WorkspaceHomePage {
   private workflows: WorkflowCard[] = [
     {
       title: '文件比较',
-      description: '打开两个文件进行差异对比，支持统一视图和分栏视图',
-      icon: '⊞',
+      description: '打开两个文件进行差异对比，分栏视图 + 行内编辑',
+      icon: '\u229E',
       route: 'pages/FolderDiffPage'
     },
     {
       title: '目录比较',
       description: '对比两个目录中的文件差异，快速定位变更文件',
-      icon: '⊟',
+      icon: '\u229F',
       route: 'pages/DirectoryDiffPage'
     },
     {
-      title: '三路合并',
-      description: '基于共同祖先的三方合并，可视化解决冲突',
-      icon: '⧖',
-      route: 'pages/MergePage'
-    },
-    {
       title: '文本临时比较',
-      description: '粘贴两段文本快速查看差异',
-      icon: '≡',
+      description: '两侧空栏直接粘贴代码，快速查看差异',
+      icon: '\u27F3',
       route: 'pages/DiffEditorPage'
     }
   ];

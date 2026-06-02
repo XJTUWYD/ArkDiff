@@ -70,7 +70,7 @@ export struct SideBySideRenderer {
       Column() {
         if (this.isLeftEditing || this.isRightEditing) {
           Button({ type: ButtonType.Circle }) {
-            Text('✕').fontSize(10).fontColor(this.getTheme().diffDeletedForeground)
+              Text('\u2715').fontSize(10).fontColor(this.getTheme().diffDeletedForeground)
           }
           .width(22).height(20).backgroundColor(Color.Transparent)
           .onClick(() => {
@@ -80,14 +80,14 @@ export struct SideBySideRenderer {
         } else if (this.leftType !== 0 || this.rightType !== 0) {
           if ((this.leftType === 2 || this.leftType === 3) && this.isLeftBlockStart) {
             Button({ type: ButtonType.Circle }) {
-              Text('→').fontSize(10).fontColor(this.getTheme().diffAddedForeground)
+              Text('\u2192').fontSize(10).fontColor(this.getTheme().diffAddedForeground)
             }
             .width(22).height(20).backgroundColor(Color.Transparent)
             .onClick(() => { if (this.onSyncToRight) this.onSyncToRight(); })
           }
           if ((this.rightType === 1 || this.rightType === 3) && this.isRightBlockStart) {
             Button({ type: ButtonType.Circle }) {
-              Text('←').fontSize(10).fontColor(this.getTheme().diffDeletedForeground)
+              Text('\u2190').fontSize(10).fontColor(this.getTheme().diffDeletedForeground)
             }
             .width(22).height(20).backgroundColor(Color.Transparent)
             .onClick(() => { if (this.onSyncToLeft) this.onSyncToLeft(); })

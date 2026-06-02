@@ -20,7 +20,7 @@ export struct DiffSearchBar {
   build() {
     Row() {
       Button({ type: ButtonType.Circle }) {
-        Text('✕').fontSize(12).fontColor(this.getTheme().textSecondary)
+        Text('\u2715').fontSize(12).fontColor(this.getTheme().textSecondary)
       }
       .width(24).height(24).backgroundColor(Color.Transparent)
       .onClick(() => { if (this.onClose) this.onClose(); })
@@ -30,13 +30,8 @@ export struct DiffSearchBar {
         .backgroundColor(Color.Transparent)
         .border({ width: 1, color: this.getTheme().dividerColor, style: BorderStyle.Solid })
         .borderRadius(14).padding({ left: 10, right: 10 })
-        .onChange((v: string) => {
-          this.searchKeyword = v;
-          if (this.onSearch) this.onSearch(v);
-        })
-        .onSubmit((_: EnterKeyType) => {
-          if (this.onNavigateNext) this.onNavigateNext();
-        })
+        .onChange((v: string) => { this.searchKeyword = v; if (this.onSearch) this.onSearch(v); })
+        .onSubmit((_: EnterKeyType) => { if (this.onNavigateNext) this.onNavigateNext(); })
 
       if (this.totalMatches > 0) {
         Text(`${this.currentMatchIndex + 1}/${this.totalMatches}`)
@@ -44,14 +39,14 @@ export struct DiffSearchBar {
       }
 
       Button({ type: ButtonType.Circle }) {
-        Text('↑').fontSize(14).fontColor(this.getTheme().textPrimary)
+        Text('\u25B2').fontSize(12).fontColor(this.getTheme().textPrimary)
       }
       .width(26).height(26).backgroundColor(this.getTheme().dividerColor)
       .enabled(this.totalMatches > 0)
       .onClick(() => { if (this.onNavigatePrev) this.onNavigatePrev(); })
 
       Button({ type: ButtonType.Circle }) {
-        Text('↓').fontSize(14).fontColor(this.getTheme().textPrimary)
+        Text('\u25BC').fontSize(12).fontColor(this.getTheme().textPrimary)
       }
       .width(26).height(26).backgroundColor(this.getTheme().dividerColor).margin({ left: 4 })
       .enabled(this.totalMatches > 0)

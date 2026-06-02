@@ -1,108 +1,42 @@
 /**
  * AegisDiff — DiffEditorPage（Meld 风格双栏对比编辑器）
  *
- * 使用 LazyForEach 虚拟列表渲染大 diff（>500 行），仅渲染可视区域。
- * 同步按钮（← →）整块同步，修改源码后立即重算 diff 并刷新显示。
+ * 仅分栏视图，左右两侧空栏可直接粘贴/打开文件。
+ * 同步按钮（← →）原地 patch 不跑全量 re-diff。
+ * LazyForEach 虚拟列表渲染大 diff。
  */
 import { router } from '@kit.ArkUI';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
-import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
 import { DiffOverviewBar } from '../components/DiffOverviewBar';
-import { UnifiedLineRenderer } from '../components/UnifiedLineRenderer';
 import { SideBySideRenderer } from '../components/SideBySideRenderer';
 import { DiffSearchBar } from '../components/DiffSearchBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
 import { DiffSessionViewModel } from '../viewmodel/DiffSessionViewModel';
 import { FileContentService } from '../services/FileContentService';
-import { ViewMode, DiffOptions } from '../model/DiffModels';
+import { ViewMode } from '../model/DiffModels';
 import {
   ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors,
   ButtonColorMap, getLightButtonColors, getDarkButtonColors
 } from '../utils/ThemeTokens';
 
-// ==================== 数据模型 ====================
-
 interface SbsPair {
-  leftType: number;
-  leftContent: string;
-  leftLineNo: number;
-  rightType: number;
-  rightContent: string;
-  rightLineNo: number;
-  isLeftBlockStart: boolean;
-  isRightBlockStart: boolean;
+  leftType: number; leftContent: string; leftLineNo: number;
+  rightType: number; rightContent: string; rightLineNo: number;
+  isLeftBlockStart: boolean; isRightBlockStart: boolean;
 }
-
-interface DisplayItem {
-  kind: number;   // 0=行渲染, 1=折叠间隙
-  lineIdx: number;
-  gapCount: number;
-}
-
-// ==================== LazyForEach 数据源 ====================
 
 class SbsDataSource implements IDataSource {
   private items: SbsPair[] = [];
   private listeners: DataChangeListener[] = [];
-
-  setItems(items: SbsPair[]): void {
-    this.items = items;
-    this.notifyReload();
-  }
-
-  /** 局部更新：只重建 start 开始的 count 个 item，不触发全量 reload */
-  patchRange(start: number, newItems: SbsPair[]): void {
-    for (let i = 0; i < newItems.length && start + i < this.items.length; i++) {
-      this.items[start + i] = newItems[i];
-      this.notifyChange(start + i);
-    }
-  }
-
+  setItems(items: SbsPair[]): void { this.items = items; this.notifyReload(); }
   totalCount(): number { return this.items.length; }
   getData(index: number): SbsPair { return this.items[index]; }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener);
-  }
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const p = this.listeners.indexOf(listener);
-    if (p >= 0) this.listeners.splice(p, 1);
-  }
-  private notifyReload(): void {
-    this.listeners.forEach(l => l.onDataReloaded());
-  }
-  private notifyChange(idx: number): void {
-    this.listeners.forEach(l => l.onDataChange(idx));
-  }
+  registerDataChangeListener(l: DataChangeListener): void { if (this.listeners.indexOf(l) < 0) this.listeners.push(l); }
+  unregisterDataChangeListener(l: DataChangeListener): void { const p = this.listeners.indexOf(l); if (p >= 0) this.listeners.splice(p, 1); }
+  private notifyReload(): void { this.listeners.forEach(l => l.onDataReloaded()); }
 }
-
-class DisplayDataSource implements IDataSource {
-  private items: DisplayItem[] = [];
-  private listeners: DataChangeListener[] = [];
-
-  setItems(items: DisplayItem[]): void {
-    this.items = items;
-    this.notifyReload();
-  }
-
-  totalCount(): number { return this.items.length; }
-  getData(index: number): DisplayItem { return this.items[index]; }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener);
-  }
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const p = this.listeners.indexOf(listener);
-    if (p >= 0) this.listeners.splice(p, 1);
-  }
-  private notifyReload(): void {
-    this.listeners.forEach(l => l.onDataReloaded());
-  }
-}
-
-// ==================== 页面 ====================
 
 @Entry
 @Component
@@ -114,57 +48,37 @@ struct DiffEditorPage {
   @StorageLink('ignoreWhitespace') ignoreWhitespace: boolean = false;
   @State navIdx: number = 0;
   @State sbsSource: SbsDataSource = new SbsDataSource();
-  @State dispSource: DisplayDataSource = new DisplayDataSource();
-  @State collapsedGaps: Set<number> = new Set();
   @State editBuffer: string = '';
   @State session: DiffSessionViewModel = new DiffSessionViewModel();
   @State textA: string = '';
   @State textB: string = '';
   @State theme: ThemeColorMap = getLightColors();
   @State btnTheme: ButtonColorMap = getLightButtonColors();
-  private unifiedScroller: Scroller = new Scroller();
+  @State started: boolean = false;
+  private scroller: Scroller = new Scroller();
   private isMonokai: boolean = false;
 
   aboutToAppear(): void {
-    let fromDirA = AppStorage.get<string>('dirDiffContentA');
-    let fromDirB = AppStorage.get<string>('dirDiffContentB');
-    if (fromDirA !== undefined && fromDirA !== null && fromDirB !== undefined && fromDirB !== null) {
-      this.session.textA = fromDirA;
-      this.session.textB = fromDirB;
-      this.textA = fromDirA;
-      this.textB = fromDirB;
-      this.session.fileNameA = AppStorage.get<string>('dirDiffNameA') || '文件A';
-      this.session.fileNameB = AppStorage.get<string>('dirDiffNameB') || '文件B';
+    let fromA = AppStorage.get<string>('dirDiffContentA');
+    let fromB = AppStorage.get<string>('dirDiffContentB');
+    if (fromA !== undefined && fromA !== null && fromB !== undefined && fromB !== null) {
+      this.session.textA = fromA; this.session.textB = fromB;
+      this.textA = fromA; this.textB = fromB;
+      this.session.fileNameA = AppStorage.get<string>('dirDiffNameA') || 'A';
+      this.session.fileNameB = AppStorage.get<string>('dirDiffNameB') || 'B';
       this.session.isFileMode = true;
-      AppStorage.delete('dirDiffContentA');
-      AppStorage.delete('dirDiffContentB');
-      AppStorage.delete('dirDiffNameA');
-      AppStorage.delete('dirDiffNameB');
+      AppStorage.delete('dirDiffContentA'); AppStorage.delete('dirDiffContentB');
+      AppStorage.delete('dirDiffNameA'); AppStorage.delete('dirDiffNameB');
+      this.syncSessionOptions();
       this.runDiffAndSync();
-    } else {
-      this.session.textA = SampleDataProvider.getSampleA();
-      this.session.textB = SampleDataProvider.getSampleB();
-      this.textA = this.session.textA;
-      this.textB = this.session.textB;
     }
-    this.syncSessionOptions();
     this.updateTheme();
   }
 
   private updateTheme(): void {
     this.isMonokai = this.colorMode === 'monokai';
-    if (this.isMonokai) {
-      this.theme = getMonokaiColors();
-    } else if (this.colorMode === 'dark') {
-      this.theme = getDarkColors();
-    } else {
-      this.theme = getLightColors();
-    }
-    if (this.colorMode === 'dark' || this.isMonokai) {
-      this.btnTheme = getDarkButtonColors();
-    } else {
-      this.btnTheme = getLightButtonColors();
-    }
+    this.theme = this.isMonokai ? getMonokaiColors() : this.colorMode === 'dark' ? getDarkColors() : getLightColors();
+    this.btnTheme = (this.colorMode === 'dark' || this.isMonokai) ? getDarkButtonColors() : getLightButtonColors();
   }
 
   private syncSessionOptions(): void {
@@ -178,40 +92,32 @@ struct DiffEditorPage {
       // === 工具栏 ===
       Row() {
         DiffToolbar({
-          viewMode: this.session.viewMode, isComputing: this.session.isComputing,
+          viewMode: ViewMode.SIDE_BY_SIDE, isComputing: this.session.isComputing,
           searchActive: this.session.searchVisible,
           isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
           onRunDiff: () => { this.syncSessionOptions(); this.runDiffAndSync(); },
-          onSwitchView: (m: ViewMode) => { this.session.switchView(m); },
           onPasteSample: () => { this.pasteSample(); },
           onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
           onToggleSearch: () => { this.toggleSearch(); },
-          onOpenMerge: () => { router.pushUrl({ url: 'pages/MergePage' }); },
           onExport: () => { this.exportDiff(); },
           onPickFileA: () => { this.pickFileA(); },
           onPickFileB: () => { this.pickFileB(); }
         }).height(44)
 
-        if (this.session.fileNameA !== '' || this.session.fileNameB !== '') {
-          Text(this.session.fileNameA !== '' ? `A:${this.session.fileNameA}` : '')
-            .fontSize(10).fontColor(this.theme.diffAddedForeground).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ left: 6 })
-          Text(this.session.fileNameB !== '' ? `B:${this.session.fileNameB}` : '')
-            .fontSize(10).fontColor(this.theme.diffDeletedForeground).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ left: 6 })
+        if (this.session.fileNameA || this.session.fileNameB) {
+          if (this.session.fileNameA) Text(`A:${this.session.fileNameA}`).fontSize(10).fontColor(this.theme.diffAddedForeground).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ left: 6 })
+          if (this.session.fileNameB) Text(`B:${this.session.fileNameB}`).fontSize(10).fontColor(this.theme.diffDeletedForeground).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).margin({ left: 6 })
         }
-      }.width('100%').height(44).padding({ left: 4, right: 8 })
-      .backgroundColor(this.theme.toolbarBackground)
+      }.width('100%').height(44).padding({ left: 4, right: 8 }).backgroundColor(this.theme.toolbarBackground)
 
       Divider().height(1).color(this.theme.dividerColor)
 
       // === 搜索栏 ===
       if (this.session.searchVisible && this.session.diffResult) {
         DiffSearchBar({
-          totalMatches: this.session.totalSearchResults,
-          currentMatchIndex: this.session.currentSearchResultIndex,
+          totalMatches: this.session.totalSearchResults, currentMatchIndex: this.session.currentSearchResultIndex,
           isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
-          onSearch: (keyword: string) => { this.session.performSearch(keyword); },
+          onSearch: (kw: string) => { this.session.performSearch(kw); },
           onNavigateNext: () => { this.session.navigateSearchNext(); },
           onNavigatePrev: () => { this.session.navigateSearchPrev(); },
           onClose: () => { this.session.hideSearch(); }
@@ -219,310 +125,165 @@ struct DiffEditorPage {
       }
 
       // === 统计栏 ===
-      if (this.session.diffResult) {
-        this.diffStatsBar()
-      }
+      if (this.session.diffResult) this.diffStatsBar()
 
-      // === Diff 内容区（LazyForEach 虚拟列表） ===
+      // === SBS 内容区 ===
       if (this.session.diffResult) {
         Row() {
-          Scroll(this.unifiedScroller) { this.diffContentArea() }
-          .layoutWeight(1).height('100%').scrollBar(BarState.Auto)
+          Scroll(this.scroller) {
+            Column() {
+              LazyForEach(this.sbsSource, (p: SbsPair, i: number) => {
+                SideBySideRenderer({
+                  leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+                  rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+                  isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
+                  isSearchMatch: this.session.isLineSearchMatch(i),
+                  isHighlighted: this.session.isLineInHighlightedBlock(i),
+                  isLeftEditing: this.session.isSideEditing(i, 'left'),
+                  isRightEditing: this.session.isSideEditing(i, 'right'),
+                  isLeftBlockStart: p.isLeftBlockStart, isRightBlockStart: p.isRightBlockStart,
+                  sideEditBuffer: $editBuffer,
+                  onSyncToRight: () => { this.session.syncBlockToRight(i); this.syncBothAfterEdit(); },
+                  onSyncToLeft: () => { this.session.syncBlockToLeft(i); this.syncBothAfterEdit(); },
+                  onLeftClick: () => { if (!this.session.isSideEditing(i, 'left') && p.leftContent.length > 0) { this.editBuffer = p.leftContent; this.session.startSideEdit(i, 'left'); } },
+                  onRightClick: () => { if (!this.session.isSideEditing(i, 'right') && p.rightContent.length > 0) { this.editBuffer = p.rightContent; this.session.startSideEdit(i, 'right'); } },
+                  onLeftEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncBothAfterEdit(); },
+                  onRightEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncBothAfterEdit(); },
+                  onLeftEditCancel: () => { this.session.cancelSideEdit(); },
+                  onRightEditCancel: () => { this.session.cancelSideEdit(); }
+                })
+              }, (p: SbsPair, i: number) => `sbs_${p.leftLineNo}_${p.leftType}_${p.rightLineNo}_${p.rightType}`)
+            }.alignItems(HorizontalAlign.Start)
+          }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
 
           if (this.session.diffBlocks.length > 0) {
             DiffOverviewBar({
-              blocks: this.session.diffBlocks,
-              totalLines: this.session.diffResult.unifiedLines.length,
+              blocks: this.session.diffBlocks, totalLines: this.session.diffResult.unifiedLines.length,
               isMonokai: this.isMonokai, isDark: this.colorMode === 'dark', activeIdx: this.navIdx,
               onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
             }).width(10).height('100%')
           }
         }.width('100%').layoutWeight(1)
       } else {
-        this.emptyState()
+        // Meld-style empty start: two side-by-side text areas
+        Row() {
+          Column() {
+            Text('A').fontSize(11).fontColor(this.theme.textSecondary).padding({ left: 8, top: 4 })
+            TextArea({ text: this.textA, placeholder: '粘贴或打开文件 A…' })
+              .fontSize(12).fontFamily('monospace').fontColor(this.theme.textPrimary)
+              .backgroundColor(this.theme.diffUnchangedBackground)
+              .padding(8).layoutWeight(1)
+              .onChange((v: string) => { this.textA = v; this.session.textA = v; })
+          }.width('50%').height('100%').border({ width: { right: 1 }, color: this.theme.dividerColor })
+          Column() {
+            Text('B').fontSize(11).fontColor(this.theme.textSecondary).padding({ left: 8, top: 4 })
+            TextArea({ text: this.textB, placeholder: '粘贴或打开文件 B…' })
+              .fontSize(12).fontFamily('monospace').fontColor(this.theme.textPrimary)
+              .backgroundColor(this.theme.diffUnchangedBackground)
+              .padding(8).layoutWeight(1)
+              .onChange((v: string) => { this.textB = v; this.session.textB = v; })
+          }.width('50%').height('100%')
+        }.width('100%').layoutWeight(1)
       }
 
       // === 底部导航栏 ===
-      Divider().height(1).color(this.theme.dividerColor)
-      DiffNavigator({
-        totalBlocks: this.session.diffBlocks.length, currentIndex: this.navIdx,
-        isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
-        onNavigateTo: (i: number) => { this.navIdx = i; this.scrollToBlock(i); },
-        onPickFileA: () => { this.pickFileA(); },
-        onPickFileB: () => { this.pickFileB(); }
-      }).width('100%').height(40)
+      if (this.session.diffResult) {
+        Divider().height(1).color(this.theme.dividerColor)
+        DiffNavigator({
+          totalBlocks: this.session.diffBlocks.length, currentIndex: this.navIdx,
+          isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
+          onNavigateTo: (i: number) => { this.navIdx = i; this.scrollToBlock(i); },
+          onPickFileA: () => { this.pickFileA(); },
+          onPickFileB: () => { this.pickFileB(); }
+        }).width('100%').height(40)
+      }
     }.width('100%').height('100%').backgroundColor(this.theme.pageBackground)
     .onKeyEvent((event: Object) => {
-      const keyCode = (event as Record<string, Object>)['keyCode'] as number;
-      const keyType = (event as Record<string, Object>)['type'] as number;
-      if (keyType === 1) {
-        switch (keyCode) {
-          case 2055:
-            this.session.cancelEdit();
-            this.session.cancelSideEdit();
-            this.session.hideSearch();
-            break;
-          default:
-            if (keyCode >= 2048 && keyCode <= 2059) break;
-            const ctrl = (event as Record<string, Object>)['ctrlKey'] as boolean;
-            if (ctrl && keyCode === 2116) {
-              this.syncSessionOptions();
-              this.session.textA = this.textA;
-              this.session.textB = this.textB;
-              this.session.runTextDiff();
-              this.syncStateFromSession();
-            }
-            if (ctrl && keyCode === 2109) this.toggleSearch();
-            if (ctrl && keyCode === 2127) this.session.switchView(ViewMode.UNIFIED);
-            if (ctrl && keyCode === 2098) this.session.switchView(ViewMode.SIDE_BY_SIDE);
-        }
+      const kc = (event as Record<string, Object>)['keyCode'] as number;
+      const kt = (event as Record<string, Object>)['type'] as number;
+      if (kt === 1 && kc === 2055) { this.session.cancelSideEdit(); this.session.hideSearch(); }
+      if (kt === 1) {
+        const ctrl = (event as Record<string, Object>)['ctrlKey'] as boolean;
+        if (ctrl && kc === 2116) { this.runDiffAndSync(); }
+        if (ctrl && kc === 2109) { this.toggleSearch(); }
       }
       return true;
     })
   }
 
-  // ==================== 内容区（LazyForEach） ====================
-
-  @Builder
-  diffContentArea() {
-    if (this.session.viewMode === ViewMode.UNIFIED) {
-      Column() {
-        LazyForEach(this.dispSource, (item: DisplayItem, idx: number) => {
-          if (item.kind === 1) {
-            this.gapRow(item.lineIdx, item.gapCount)
-          } else {
-            UnifiedLineRenderer({
-              typeNum: this.session.diffResult!.unifiedLines[item.lineIdx].type,
-              content: this.session.diffResult!.unifiedLines[item.lineIdx].content,
-              linenoA: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberA,
-              linenoB: this.session.diffResult!.unifiedLines[item.lineIdx].lineNumberB,
-              isMonokai: this.isMonokai,
-              isDark: this.colorMode === 'dark',
-              isSearchMatch: this.session.isLineSearchMatch(item.lineIdx),
-              isHighlighted: this.session.isLineInHighlightedBlock(item.lineIdx),
-              charSegments: this.session.diffResult!.unifiedLines[item.lineIdx].charSegments,
-              isEditing: this.session.isEditing(item.lineIdx),
-              editBuffer: $editBuffer,
-              onLineClick: () => { this.session.startEdit(item.lineIdx); },
-              onEditSubmit: (v: string) => { this.session.submitEdit(v); this.syncBothAfterEdit(); },
-              onEditCancel: () => { this.session.cancelEdit(); }
-            })
-          }
-        }, (item: DisplayItem, idx: number) => `ud_${idx}_${item.kind}_${item.lineIdx}`)
-      }.alignItems(HorizontalAlign.Start)
-    } else {
-      Column() {
-        LazyForEach(this.sbsSource, (p: SbsPair, i: number) => {
-          SideBySideRenderer({
-            leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
-            rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
-            isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
-            isSearchMatch: this.session.isLineSearchMatch(i),
-            isHighlighted: this.session.isLineInHighlightedBlock(i),
-            isLeftEditing: this.session.isSideEditing(i, 'left'),
-            isRightEditing: this.session.isSideEditing(i, 'right'),
-            isLeftBlockStart: p.isLeftBlockStart, isRightBlockStart: p.isRightBlockStart,
-            sideEditBuffer: $editBuffer,
-            onSyncToRight: () => { this.session.syncBlockToRight(i); this.syncBothAfterEdit(); },
-            onSyncToLeft: () => { this.session.syncBlockToLeft(i); this.syncBothAfterEdit(); },
-            onLeftClick: () => {
-              if (!this.session.isSideEditing(i, 'left') && p.leftContent.length > 0) {
-                this.editBuffer = p.leftContent;
-                this.session.startSideEdit(i, 'left');
-              }
-            },
-            onRightClick: () => {
-              if (!this.session.isSideEditing(i, 'right') && p.rightContent.length > 0) {
-                this.editBuffer = p.rightContent;
-                this.session.startSideEdit(i, 'right');
-              }
-            },
-            onLeftEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncBothAfterEdit(); },
-            onRightEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncBothAfterEdit(); },
-            onLeftEditCancel: () => { this.session.cancelSideEdit(); },
-            onRightEditCancel: () => { this.session.cancelSideEdit(); }
-          })
-        }, (p: SbsPair, i: number) => `sbs_${p.leftLineNo}_${p.leftType}_${p.rightLineNo}_${p.rightType}`)
-      }.alignItems(HorizontalAlign.Start)
-    }
-  }
-
-  @Builder
-  gapRow(startIdx: number, count: number) {
-    Row() {
-      Text(`⋮ ${count} 行未变更 ⋮`)
-        .fontSize(11).fontColor(this.theme.textSecondary).fontFamily('monospace')
-    }
-    .width('100%').height(22).justifyContent(FlexAlign.Center)
-    .backgroundColor(this.theme.diffUnchangedBackground)
-    .onClick(() => {
-      if (this.collapsedGaps.has(startIdx)) this.collapsedGaps.delete(startIdx);
-      else this.collapsedGaps.add(startIdx);
-      this.buildDisplayItems();
-    })
-  }
-
-  @Builder
-  diffStatsBar() {
+  @Builder diffStatsBar() {
     Row() {
       Text(`+${this.session.diffResult!.stats.addedCount}`).fontSize(11).fontColor(this.theme.diffAddedForeground).fontWeight(FontWeight.Medium)
       Text(` -${this.session.diffResult!.stats.deletedCount}`).fontSize(11).fontColor(this.theme.diffDeletedForeground).fontWeight(FontWeight.Medium).margin({ left: 8, right: 8 })
       Text(` ~${this.session.diffResult!.stats.modifiedCount}`).fontSize(11).fontColor(this.theme.diffModifiedForeground).fontWeight(FontWeight.Medium)
       Text(`  ${this.session.diffResult!.stats.similarityPercent}%`).fontSize(11).fontColor(this.theme.textSecondary).layoutWeight(1)
       Text(`${this.session.diffBlocks.length}块`).fontSize(11).fontColor(this.theme.textSecondary)
-    }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor(this.theme.surfaceBackground)
-    .border({ width: { bottom: 1 }, color: this.theme.dividerColor })
-  }
-
-  @Builder
-  emptyState() {
-    Column() {
-      Text('AegisDiff').fontSize(22).fontColor(this.theme.textPrimary)
-      Text('粘贴示例代码或使用 📄 打开文件').fontSize(13).fontColor(this.theme.textSecondary).margin({ top: 8 })
-    }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+    }.width('100%').height(30).padding({ left: 12, right: 12 }).backgroundColor(this.theme.surfaceBackground).border({ width: { bottom: 1 }, color: this.theme.dividerColor })
   }
 
   // ==================== 状态同步 ====================
 
   private runDiffAndSync(): void {
-    this.session.textA = this.textA;
-    this.session.textB = this.textB;
+    this.session.textA = this.textA; this.session.textB = this.textB;
     this.session.runTextDiff();
     this.syncStateFromSession();
-    if (this.session.lastError) {
-      AlertDialog.show({
-        title: 'Diff 执行失败', message: this.session.lastError,
-        autoCancel: true, confirm: { value: '确定', action: () => {} }
-      });
-    }
+    if (this.session.lastError) AlertDialog.show({ title: 'Diff 执行失败', message: this.session.lastError, autoCancel: true, confirm: { value: '确定', action: () => {} } });
   }
 
-  /**
-   * 同步 diff 结果到两个 LazyForEach 数据源，块首标记在构建时一并计算
-   */
   private syncStateFromSession(): void {
-    if (!this.session || !this.session.diffResult) return;
-
-    const leftLines = this.session.diffResult.leftLines;
-    const rightLines = this.session.diffResult.rightLines;
-    const len = Math.max(leftLines.length, rightLines.length);
-    const newPairs: SbsPair[] = [];
+    if (!this.session?.diffResult) return;
+    const L = this.session.diffResult.leftLines, R = this.session.diffResult.rightLines;
+    const len = Math.max(L.length, R.length);
+    const pairs: SbsPair[] = [];
     for (let i = 0; i < len; i++) {
-      const left = leftLines[i];
-      const right = rightLines[i];
-      const leftType = left ? left.type : 0;
-      const rightType = right ? right.type : 0;
-
-      newPairs.push({
-        leftType, leftContent: left ? left.content : '', leftLineNo: left ? left.lineNumberA : -1,
-        rightType, rightContent: right ? right.content : '', rightLineNo: right ? right.lineNumberB : -1,
-        isLeftBlockStart: (leftType === 2 || leftType === 3) &&
-          (i === 0 || (leftLines[i - 1] ? leftLines[i - 1].type !== leftType : true)),
-        isRightBlockStart: (rightType === 1 || rightType === 3) &&
-          (i === 0 || (rightLines[i - 1] ? rightLines[i - 1].type !== rightType : true))
+      const l = L[i], r = R[i];
+      const lt = l ? l.type : 0, rt = r ? r.type : 0;
+      pairs.push({
+        leftType: lt, leftContent: l ? l.content : '', leftLineNo: l ? l.lineNumberA : -1,
+        rightType: rt, rightContent: r ? r.content : '', rightLineNo: r ? r.lineNumberB : -1,
+        isLeftBlockStart: (lt === 2 || lt === 3) && (i === 0 || (L[i - 1] ? L[i - 1].type !== lt : true)),
+        isRightBlockStart: (rt === 1 || rt === 3) && (i === 0 || (R[i - 1] ? R[i - 1].type !== rt : true))
       });
     }
-
-    this.sbsSource.setItems(newPairs);
-    this.collapsedGaps = new Set();
-    this.buildDisplayItems();
+    this.sbsSource.setItems(pairs);
     this.navIdx = this.session.highlightBlockIndex >= 0 ? this.session.highlightBlockIndex : 0;
   }
 
-  /**
-   * 同步后轻量刷新：diffResult 已被原地 patch，这里只重建 SBS pairs 和 unified items
-   */
   private syncBothAfterEdit(): void {
-    this.textA = this.session.textA;
-    this.textB = this.session.textB;
+    this.textA = this.session.textA; this.textB = this.session.textB;
     this.syncStateFromSession();
   }
 
-  private buildDisplayItems(): void {
-    const GAP_MIN = 8;
-    const result: DisplayItem[] = [];
-    if (!this.session.diffResult) { this.dispSource.setItems(result); return; }
-
-    const lines = this.session.diffResult.unifiedLines;
-    let i = 0;
-    while (i < lines.length) {
-      if (lines[i].type === 0) {
-        let runStart = i;
-        while (i < lines.length && lines[i].type === 0) i++;
-        let runLen = i - runStart;
-        if (runLen > GAP_MIN && !this.collapsedGaps.has(runStart)) {
-          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++)
-            result.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
-          result.push({ kind: 1, lineIdx: runStart + 3, gapCount: runLen - 6 });
-          for (let j = runLen - 3; j < runLen; j++) {
-            if (runStart + j >= runStart + 3)
-              result.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
-          }
-        } else {
-          for (let j = runStart; j < i; j++)
-            result.push({ kind: 0, lineIdx: j, gapCount: 0 });
-        }
-      } else {
-        result.push({ kind: 0, lineIdx: i, gapCount: 0 });
-        i++;
-      }
-    }
-    this.dispSource.setItems(result);
+  private scrollToBlock(idx: number): void {
+    if (idx < 0 || idx >= this.session.diffBlocks.length) return;
+    this.scroller.scrollToIndex(this.session.diffBlocks[idx].startIndex, true);
+    this.navIdx = idx;
   }
 
-  private scrollToBlock(blockIdx: number): void {
-    if (blockIdx < 0 || blockIdx >= this.session.diffBlocks.length) return;
-    const block = this.session.diffBlocks[blockIdx];
-    this.unifiedScroller.scrollToIndex(block.startIndex, true);
-    this.navIdx = blockIdx;
-  }
-
-  // ==================== 操作 ====================
-
-  private toggleSearch(): void {
-    this.session.searchVisible ? this.session.hideSearch() : this.session.showSearch();
-  }
+  private toggleSearch(): void { this.session.searchVisible ? this.session.hideSearch() : this.session.showSearch(); }
 
   private pasteSample(): void {
-    this.session.textA = SampleDataProvider.getSampleA();
-    this.session.textB = SampleDataProvider.getSampleB();
-    this.textA = this.session.textA;
-    this.textB = this.session.textB;
-    this.syncSessionOptions();
-    this.session.runTextDiff();
-    this.syncStateFromSession();
+    this.session.textA = SampleDataProvider.getSampleA(); this.session.textB = SampleDataProvider.getSampleB();
+    this.textA = this.session.textA; this.textB = this.session.textB;
+    this.syncSessionOptions(); this.session.runTextDiff(); this.syncStateFromSession();
   }
 
   private exportDiff(): void {
     if (!this.session.diffResult) return;
-    let exportText = this.session.generateUnifiedDiff();
-    if (!exportText) return;
-    this.session.copyToClipboard(exportText, () => {
-      AlertDialog.show({
-        title: '导出成功',
-        message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`,
-        autoCancel: true
-      });
-    });
+    const t = this.session.generateUnifiedDiff();
+    if (!t) return;
+    this.session.copyToClipboard(t, (): void => { AlertDialog.show({ title: '导出成功', message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`, autoCancel: true }); });
   }
 
   private pickFileA(): void {
     try {
-      let context = getContext(this);
-      const opts = new picker.DocumentSelectOptions();
-      opts.maxSelectNumber = 1;
-      new picker.DocumentViewPicker(context).select(opts).then((uris: string[]) => {
+      let ctx = getContext(this);
+      new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions).then((uris: string[]) => {
         if (uris.length > 0) {
-          try {
-            const result = FileContentService.readFileContent(uris[0]);
-            this.session.textA = result.content;
-            this.textA = result.content;
-            this.session.fileNameA = result.fileName;
-            if (result.error) AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-            if (this.session.textA.length > 0 && this.session.textB.length > 0) {
-              this.syncSessionOptions(); this.runDiffAndSync();
-            }
-          } catch (e2) { AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true }); }
+          const r = FileContentService.readFileContent(uris[0]);
+          this.session.textA = r.content; this.textA = r.content; this.session.fileNameA = r.fileName;
+          if (r.error) AlertDialog.show({ title: '提示', message: r.error, autoCancel: true });
+          if (this.session.textA.length > 0 && this.session.textB.length > 0) { this.syncSessionOptions(); this.runDiffAndSync(); }
         }
       }).catch(() => {});
     } catch (e) {}
@@ -530,43 +291,29 @@ struct DiffEditorPage {
 
   private pickFileB(): void {
     try {
-      let context = getContext(this);
-      const opts = new picker.DocumentSelectOptions();
-      opts.maxSelectNumber = 1;
-      new picker.DocumentViewPicker(context).select(opts).then((uris: string[]) => {
+      let ctx = getContext(this);
+      new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions).then((uris: string[]) => {
         if (uris.length > 0) {
-          try {
-            const result = FileContentService.readFileContent(uris[0]);
-            this.session.textB = result.content;
-            this.textB = result.content;
-            this.session.fileNameB = result.fileName;
-            if (result.error) AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-            if (this.session.textA.length > 0 && this.session.textB.length > 0) {
-              this.syncSessionOptions(); this.runDiffAndSync();
-            }
-          } catch (e2) { AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true }); }
+          const r = FileContentService.readFileContent(uris[0]);
+          this.session.textB = r.content; this.textB = r.content; this.session.fileNameB = r.fileName;
+          if (r.error) AlertDialog.show({ title: '提示', message: r.error, autoCancel: true });
+          if (this.session.textA.length > 0 && this.session.textB.length > 0) { this.syncSessionOptions(); this.runDiffAndSync(); }
         }
       }).catch(() => {});
     } catch (e) {}
   }
 
   private saveDiffToFile(): void {
-    const diffText = this.session.generateUnifiedDiff();
-    if (!diffText) { AlertDialog.show({ title: '无差异', message: '请先执行对比', autoCancel: true }); return; }
+    const t = this.session.generateUnifiedDiff();
+    if (!t) { AlertDialog.show({ title: '无差异', message: '请先执行对比', autoCancel: true }); return; }
     try {
-      let context = getContext(this);
-      let filePicker = new picker.DocumentViewPicker(context);
-      let saveOpts = new picker.DocumentSaveOptions();
-      saveOpts.newFileNames = ['diff_output.patch'];
-      filePicker.save(saveOpts).then((uris: string[]) => {
+      let ctx = getContext(this);
+      let fp = new picker.DocumentViewPicker(ctx);
+      fp.save({ newFileNames: ['diff_output.patch'] } as picker.DocumentSaveOptions).then((uris: string[]) => {
         if (uris.length > 0) {
-          try {
-            let file = fs.openSync(uris[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
-            fs.writeSync(file.fd, diffText); fs.closeSync(file);
-            AlertDialog.show({ title: '保存成功', message: '差异已保存到文件', autoCancel: true });
-          } catch (err) { AlertDialog.show({ title: '保存失败', message: '无法写入文件', autoCancel: true }); }
+          try { let f = fs.openSync(uris[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE); fs.writeSync(f.fd, t); fs.closeSync(f); AlertDialog.show({ title: '保存成功', message: '差异已保存', autoCancel: true }); } catch (_) { AlertDialog.show({ title: '保存失败', message: '', autoCancel: true }); }
         }
       });
-    } catch (e) { AlertDialog.show({ title: '保存失败', message: '导出文件时出错', autoCancel: true }); }
+    } catch (_) {}
   }
 }

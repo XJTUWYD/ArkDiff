@@ -16,12 +16,12 @@ export struct DiffNavigator {
 
   build() {
     Row() {
-      Button('📄 A').fontSize(10).height(24).type(ButtonType.Capsule)
+      Button('\u229E A').fontSize(10).height(24).type(ButtonType.Capsule)
         .backgroundColor(this.getTheme().diffAddedBackground)
         .fontColor(this.getTheme().diffAddedForeground)
         .borderRadius(8).padding({ left: 8, right: 8 })
         .onClick(() => { if (this.onPickFileA) this.onPickFileA(); })
-      Button('📄 B').fontSize(10).height(24).type(ButtonType.Capsule)
+      Button('\u229F B').fontSize(10).height(24).type(ButtonType.Capsule)
         .backgroundColor(this.getTheme().diffDeletedBackground)
         .fontColor(this.getTheme().diffDeletedForeground)
         .borderRadius(8).padding({ left: 8, right: 8 }).margin({ left: 4 })
@@ -29,28 +29,24 @@ export struct DiffNavigator {
 
       Row() {
         Button({ type: ButtonType.Circle }) {
-          Text('▲').fontSize(14)
+          Text('\u25B2').fontSize(14)
             .fontColor(this.currentIndex > 0 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
         }
         .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex > 0)
-        .onClick(() => {
-          if (this.currentIndex > 0) { this.onNavigateTo(this.currentIndex - 1); }
-        })
+        .onClick(() => { if (this.currentIndex > 0) { this.onNavigateTo(this.currentIndex - 1); } })
 
         Text(`${this.currentIndex + 1} / ${this.totalBlocks}`)
           .fontSize(13).fontColor(this.getTheme().textSecondary).fontWeight(FontWeight.Medium)
           .width(64).textAlign(TextAlign.Center)
 
         Button({ type: ButtonType.Circle }) {
-          Text('▼').fontSize(14)
+          Text('\u25BC').fontSize(14)
             .fontColor(this.currentIndex < this.totalBlocks - 1 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
         }
         .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex < this.totalBlocks - 1)
-        .onClick(() => {
-          if (this.currentIndex < this.totalBlocks - 1) { this.onNavigateTo(this.currentIndex + 1); }
-        })
+        .onClick(() => { if (this.currentIndex < this.totalBlocks - 1) { this.onNavigateTo(this.currentIndex + 1); } })
       }
       .layoutWeight(1).justifyContent(FlexAlign.Center)
 

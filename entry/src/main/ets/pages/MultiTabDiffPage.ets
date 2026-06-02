@@ -198,9 +198,6 @@ struct MultiTabDiffPage {
         Button('对比').fontSize(11).height(28).type(ButtonType.Capsule)
           .backgroundColor('#007AFF').fontColor(Color.White).borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
           .onClick(() => { this.doDiff(); })
-        Button(this.viewMode === ViewMode.UNIFIED ? '统一' : '分栏').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#E0E0E0').fontColor('#666').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { this.viewMode = this.viewMode === ViewMode.UNIFIED ? ViewMode.SIDE_BY_SIDE : ViewMode.UNIFIED; })
         if (this.hasResult) {
           Button('⇓').fontSize(11).height(28).type(ButtonType.Capsule)
             .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
@@ -235,19 +232,11 @@ struct MultiTabDiffPage {
       if (this.hasResult) {
         Row() {
           Scroll(this.scroller) {
-            if (this.viewMode === ViewMode.UNIFIED) {
-              Column() {
-                ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
-                  this.unifiedRow(item, idx)
-                }, (item: DisplayItem, idx: number) => `ud_${idx}`)
-              }
-            } else {
               Column() {
                 ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
                   this.sbsRow(p, i)
                 }, (p: SbsPair, i: number) => `s_${i}`)
               }
-            }
           }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
           if (this.diffBlocks.length > 0) {
             DiffOverviewBar({

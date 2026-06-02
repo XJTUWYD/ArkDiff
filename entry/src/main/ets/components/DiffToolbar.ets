@@ -1,9 +1,11 @@
 /**
- * AegisDiff — DiffToolbar 组件
- * 使用 ThemeTokens 进行颜色管理
+ * AegisDiff — DiffToolbar（Meld 风格工具栏）
+ *
+ * 仅分栏视图，无统一/分栏切换，无三路合并。
+ * 图标使用 Unicode 符号替代 emoji。
  */
 import { ViewMode } from '../model/DiffModels';
-import { ThemeColorMap, ButtonColorMap, getLightColors, getDarkColors, getMonokaiColors, getLightButtonColors, getDarkButtonColors } from '../utils/ThemeTokens';
+import { ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors } from '../utils/ThemeTokens';
 
 @Component
 export struct DiffToolbar {
@@ -13,11 +15,9 @@ export struct DiffToolbar {
   @Prop isMonokai: boolean = false;
   @Prop isDark: boolean = false;
   onRunDiff: () => void = () => {};
-  onSwitchView: (mode: ViewMode) => void = () => {};
   onPasteSample: () => void = () => {};
   onOpenSettings: () => void = () => {};
   onToggleSearch: () => void = () => {};
-  onOpenMerge: () => void = () => {};
   onExport: () => void = () => {};
   onPickFileA?: () => void;
   onPickFileB?: () => void;
@@ -25,76 +25,35 @@ export struct DiffToolbar {
   build() {
     Row() {
       if (this.onPickFileA) {
-        Button('📄').fontSize(13).width(28).height(28).type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
+        Button('\u229E').fontSize(16).width(28).height(28).type(ButtonType.Circle).backgroundColor(Color.Transparent)
           .onClick(() => { if (this.onPickFileA) this.onPickFileA(); })
       }
       if (this.onPickFileB) {
-        Button('📄').fontSize(13).width(28).height(28).type(ButtonType.Circle)
-          .backgroundColor(Color.Transparent)
+        Button('\u229F').fontSize(16).width(28).height(28).type(ButtonType.Circle).backgroundColor(Color.Transparent)
           .onClick(() => { if (this.onPickFileB) this.onPickFileB(); })
       }
 
-      Button(this.isComputing ? '…' : '对比')
-        .fontSize(12).height(28)
-        .type(ButtonType.Capsule).backgroundColor('#007AFF')
-        .borderRadius(14).enabled(!this.isComputing)
-        .padding({ left: 10, right: 10 })
+      Button(this.isComputing ? '\u2026' : '\u27F3').fontSize(16).width(28).height(28).type(ButtonType.Circle)
+        .backgroundColor('#007AFF').enabled(!this.isComputing)
         .onClick(() => { this.onRunDiff(); })
 
       Blank()
 
-      Row() {
-        Button('统一')
-          .fontSize(11).height(24).type(ButtonType.Capsule)
-          .backgroundColor(this.viewMode === ViewMode.UNIFIED ? '#007AFF' :  this.getTheme().dividerColor)
-          .fontColor(this.viewMode === ViewMode.UNIFIED ? Color.White : this.getTheme().textSecondary)
-          .borderRadius(0).padding({ left: 6, right: 6 })
-          .onClick(() => { this.onSwitchView(ViewMode.UNIFIED); })
-        Button('分栏')
-          .fontSize(11).height(24).type(ButtonType.Capsule)
-          .backgroundColor(this.viewMode === ViewMode.SIDE_BY_SIDE ? '#007AFF' : this.getTheme().dividerColor)
-          .fontColor(this.viewMode === ViewMode.SIDE_BY_SIDE ? Color.White : this.getTheme().textSecondary)
-          .borderRadius(0).padding({ left: 6, right: 6 })
-          .onClick(() => { this.onSwitchView(ViewMode.SIDE_BY_SIDE); })
-      }
-      .borderRadius(12).border({ width: 1, color: this.getTheme().dividerColor }).clip(true)
+      Button('\u267B').fontSize(14).width(28).height(28).type(ButtonType.Circle).backgroundColor(Color.Transparent)
+        .onClick(() => { this.onPasteSample(); })
 
-      Blank()
+      Button('\u2315').fontSize(16).width(28).height(28).type(ButtonType.Circle)
+        .backgroundColor(this.searchActive ? '#007AFF' : Color.Transparent)
+        .onClick(() => { this.onToggleSearch(); })
 
-      Button({ type: ButtonType.Circle }) {
-        Text('📋').fontSize(14)
-      }
-      .width(28).height(28).backgroundColor(Color.Transparent)
-      .onClick(() => { this.onPasteSample(); })
+      Button('\u21F1').fontSize(16).width(28).height(28).type(ButtonType.Circle).backgroundColor(Color.Transparent)
+        .onClick(() => { this.onExport(); })
 
-      Button({ type: ButtonType.Circle }) {
-        Text('🔍').fontSize(14)
-      }
-      .width(28).height(28)
-      .backgroundColor(this.searchActive ? '#007AFF' : Color.Transparent)
-      .onClick(() => { this.onToggleSearch(); })
-
-      Button({ type: ButtonType.Circle }) {
-        Text('🔀').fontSize(14)
-      }
-      .width(28).height(28).backgroundColor(Color.Transparent)
-      .onClick(() => { this.onOpenMerge(); })
-
-      Button({ type: ButtonType.Circle }) {
-        Text('📤').fontSize(14)
-      }
-      .width(28).height(28).backgroundColor(Color.Transparent)
-      .onClick(() => { this.onExport(); })
-
-      Button({ type: ButtonType.Circle }) {
-        Text('⚙').fontSize(14).fontColor(this.getTheme().textSecondary)
-      }
-      .width(28).height(28).backgroundColor(Color.Transparent)
-      .onClick(() => { this.onOpenSettings(); })
+      Button('\u2699').fontSize(16).width(28).height(28).type(ButtonType.Circle)
+        .backgroundColor(Color.Transparent).fontColor(this.getTheme().textSecondary)
+        .onClick(() => { this.onOpenSettings(); })
     }
-    .width('100%').height('100%')
-    .padding({ left: 4, right: 2 })
+    .width('100%').height('100%').padding({ left: 4, right: 2 })
     .backgroundColor(this.getTheme().toolbarBackground)
   }
 

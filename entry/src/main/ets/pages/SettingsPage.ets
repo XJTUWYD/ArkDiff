@@ -16,7 +16,7 @@ struct SettingsPage {
   build() {
     Column() {
       Row() {
-        Button({ type: ButtonType.Circle }) { Text('←').fontSize(18).fontColor('#333333') }
+        Button({ type: ButtonType.Circle }) { Text('\u2190').fontSize(18).fontColor('#333333') }
         .width(32).height(32).backgroundColor(Color.Transparent)
         .onClick(() => { router.back(); })
 
