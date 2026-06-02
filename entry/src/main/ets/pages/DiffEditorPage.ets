@@ -52,6 +52,14 @@ class SbsDataSource implements IDataSource {
     this.notifyReload();
   }
 
+  /** 局部更新：只重建 start 开始的 count 个 item，不触发全量 reload */
+  patchRange(start: number, newItems: SbsPair[]): void {
+    for (let i = 0; i < newItems.length && start + i < this.items.length; i++) {
+      this.items[start + i] = newItems[i];
+      this.notifyChange(start + i);
+    }
+  }
+
   totalCount(): number { return this.items.length; }
   getData(index: number): SbsPair { return this.items[index]; }
 
@@ -62,8 +70,11 @@ class SbsDataSource implements IDataSource {
     const p = this.listeners.indexOf(listener);
     if (p >= 0) this.listeners.splice(p, 1);
   }
-  notifyReload(): void {
+  private notifyReload(): void {
     this.listeners.forEach(l => l.onDataReloaded());
+  }
+  private notifyChange(idx: number): void {
+    this.listeners.forEach(l => l.onDataChange(idx));
   }
 }
 
@@ -86,7 +97,7 @@ class DisplayDataSource implements IDataSource {
     const p = this.listeners.indexOf(listener);
     if (p >= 0) this.listeners.splice(p, 1);
   }
-  notifyReload(): void {
+  private notifyReload(): void {
     this.listeners.forEach(l => l.onDataReloaded());
   }
 }
@@ -418,6 +429,9 @@ struct DiffEditorPage {
     this.navIdx = this.session.highlightBlockIndex >= 0 ? this.session.highlightBlockIndex : 0;
   }
 
+  /**
+   * 同步后轻量刷新：diffResult 已被原地 patch，这里只重建 SBS pairs 和 unified items
+   */
   private syncBothAfterEdit(): void {
     this.textA = this.session.textA;
     this.textB = this.session.textB;

@@ -16,7 +16,7 @@
 import { DiffEngine } from '../engine/DiffEngine';
 import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { FileContentService, FileContent } from '../services/FileContentService';
-import { DiffLine, DiffOptions, ViewMode, DiffResult } from '../model/DiffModels';
+import { DiffLine, DiffOptions, ViewMode, DiffResult, DiffType } from '../model/DiffModels';
 import { pasteboard } from '@kit.BasicServicesKit';
 
 /** 搜索结果 */
@@ -407,12 +407,12 @@ export class DiffSessionViewModel {
   }
 
   /**
-   * 块同步到右侧：将连续同类型左列行（DELETED/MODIFIED）整块复制到 B 侧
-   * 从 sbsStartIdx 开始，找到连续的相同类型行，一次性同步
+   * 块同步到右侧：patch diffResult 原地修改，不跑全量 re-diff
    */
   syncBlockToRight(sbsStartIdx: number): void {
     if (!this.diffResult) return;
     const leftLines = this.diffResult.leftLines;
+    const rightLines = this.diffResult.rightLines;
     if (sbsStartIdx < 0 || sbsStartIdx >= leftLines.length) return;
 
     const startType = leftLines[sbsStartIdx].type;
@@ -420,43 +420,47 @@ export class DiffSessionViewModel {
 
     let count = 1;
     while (sbsStartIdx + count < leftLines.length &&
-           leftLines[sbsStartIdx + count].type === startType) {
-      count++;
-    }
+           leftLines[sbsStartIdx + count].type === startType) count++;
 
     this.pushSnapshot(`块同步(${count}行)→右侧`);
 
+    // 更新 textB（仅用于 undo/redo）
     let linesB = this.textB.split('\n');
-
-    // 从块底向块顶处理，避免插入时索引偏移
     for (let offset = count - 1; offset >= 0; offset--) {
       const idx = sbsStartIdx + offset;
       const leftLine = leftLines[idx];
-
       if (leftLine.lineNumberB <= 0) {
         const insIdx = this._findNearestBInsertPos(leftLines, idx);
-        if (insIdx >= 0 && insIdx <= linesB.length) {
-          linesB.splice(insIdx, 0, leftLine.content);
-        } else {
-          linesB.push(leftLine.content);
-        }
+        if (insIdx >= 0 && insIdx <= linesB.length) linesB.splice(insIdx, 0, leftLine.content);
+        else linesB.push(leftLine.content);
       } else {
-        const targetIdx = leftLine.lineNumberB - 1;
-        if (targetIdx >= 0 && targetIdx < linesB.length) {
-          linesB[targetIdx] = leftLine.content;
-        }
+        const ti = leftLine.lineNumberB - 1;
+        if (ti >= 0 && ti < linesB.length) linesB[ti] = leftLine.content;
       }
     }
-
     this.textB = linesB.join('\n');
-    this.runTextDiff();
+
+    // 原地 patch diffResult（跳过全量 re-diff）
+    let aDelta = 0, dDelta = 0, mDelta = 0;
+    for (let offset = 0; offset < count; offset++) {
+      const idx = sbsStartIdx + offset;
+      if (leftLines[idx].type === DiffType.DELETED) dDelta++;
+      else if (leftLines[idx].type === DiffType.MODIFIED) mDelta++;
+      leftLines[idx].type = DiffType.UNCHANGED;
+      rightLines[idx].type = DiffType.UNCHANGED;
+      rightLines[idx].content = leftLines[idx].content;
+      rightLines[idx].lineNumberB = leftLines[idx].lineNumberA;
+    }
+    this.rebuildUnifiedFromSBS();
+    this.applyPatchStats(-1 * aDelta, -1 * dDelta, -1 * mDelta);
   }
 
   /**
-   * 块同步到左侧：将连续同类型右列行（ADDED/MODIFIED）整块复制到 A 侧
+   * 块同步到左侧：patch diffResult 原地修改
    */
   syncBlockToLeft(sbsStartIdx: number): void {
     if (!this.diffResult) return;
+    const leftLines = this.diffResult.leftLines;
     const rightLines = this.diffResult.rightLines;
     if (sbsStartIdx < 0 || sbsStartIdx >= rightLines.length) return;
 
@@ -465,35 +469,75 @@ export class DiffSessionViewModel {
 
     let count = 1;
     while (sbsStartIdx + count < rightLines.length &&
-           rightLines[sbsStartIdx + count].type === startType) {
-      count++;
-    }
+           rightLines[sbsStartIdx + count].type === startType) count++;
 
     this.pushSnapshot(`块同步(${count}行)←左侧`);
 
+    // 更新 textA（仅用于 undo/redo）
     let linesA = this.textA.split('\n');
-
     for (let offset = count - 1; offset >= 0; offset--) {
       const idx = sbsStartIdx + offset;
       const rightLine = rightLines[idx];
-
       if (rightLine.lineNumberA <= 0) {
         const insIdx = this._findNearestAInsertPos(rightLines, idx);
-        if (insIdx >= 0 && insIdx <= linesA.length) {
-          linesA.splice(insIdx, 0, rightLine.content);
-        } else {
-          linesA.push(rightLine.content);
-        }
+        if (insIdx >= 0 && insIdx <= linesA.length) linesA.splice(insIdx, 0, rightLine.content);
+        else linesA.push(rightLine.content);
       } else {
-        const targetIdx = rightLine.lineNumberA - 1;
-        if (targetIdx >= 0 && targetIdx < linesA.length) {
-          linesA[targetIdx] = rightLine.content;
-        }
+        const ti = rightLine.lineNumberA - 1;
+        if (ti >= 0 && ti < linesA.length) linesA[ti] = rightLine.content;
       }
     }
-
     this.textA = linesA.join('\n');
-    this.runTextDiff();
+
+    // 原地 patch diffResult
+    let aDelta = 0, mDelta = 0;
+    for (let offset = 0; offset < count; offset++) {
+      const idx = sbsStartIdx + offset;
+      if (rightLines[idx].type === DiffType.ADDED) aDelta++;
+      else if (rightLines[idx].type === DiffType.MODIFIED) mDelta++;
+      leftLines[idx].type = DiffType.UNCHANGED;
+      leftLines[idx].content = rightLines[idx].content;
+      leftLines[idx].lineNumberA = rightLines[idx].lineNumberB;
+      rightLines[idx].type = DiffType.UNCHANGED;
+    }
+    this.rebuildUnifiedFromSBS();
+    this.applyPatchStats(-1 * aDelta, 0, -1 * mDelta);
+  }
+
+  /** 从 patched SBS 重建 unifiedLines */
+  private rebuildUnifiedFromSBS(): void {
+    if (!this.diffResult) return;
+    const L = this.diffResult.leftLines;
+    const R = this.diffResult.rightLines;
+    const out: DiffLine[] = [];
+    const len = Math.max(L.length, R.length);
+    for (let i = 0; i < len; i++) {
+      const l = L[i], r = R[i];
+      if (l.type === DiffType.UNCHANGED && r.type === DiffType.UNCHANGED) {
+        out.push({ lineNumberA: l.lineNumberA, lineNumberB: r.lineNumberB, content: l.content, oldContent: '', type: DiffType.UNCHANGED, charSegments: [] });
+      } else if ((l.type === DiffType.DELETED || l.type === DiffType.MODIFIED) && r.type === DiffType.UNCHANGED && r.content === '') {
+        out.push({ lineNumberA: l.lineNumberA, lineNumberB: -1, content: l.content, oldContent: '', type: DiffType.DELETED, charSegments: [] });
+      } else if ((r.type === DiffType.ADDED || r.type === DiffType.MODIFIED) && l.type === DiffType.UNCHANGED && l.content === '') {
+        out.push({ lineNumberA: -1, lineNumberB: r.lineNumberB, content: r.content, oldContent: '', type: DiffType.ADDED, charSegments: [] });
+      } else {
+        out.push({ lineNumberA: l.lineNumberA, lineNumberB: r.lineNumberB, content: r.content, oldContent: l.content, type: DiffType.MODIFIED, charSegments: [] });
+      }
+    }
+    this.diffResult.unifiedLines = out;
+    this.diffBlocks = DiffBlockLocator.locateBlocks(out);
+  }
+
+  /** 统计增量更新 */
+  private applyPatchStats(addDelta: number, delDelta: number, modDelta: number): void {
+    if (!this.diffResult) return;
+    const s = this.diffResult.stats;
+    s.addedCount = Math.max(0, s.addedCount + addDelta);
+    s.deletedCount = Math.max(0, s.deletedCount + delDelta);
+    s.modifiedCount = Math.max(0, s.modifiedCount + modDelta);
+    s.unchangedCount = Math.max(0, s.unchangedCount - addDelta - delDelta - modDelta);
+    const total = s.addedCount + s.deletedCount + s.modifiedCount + s.unchangedCount;
+    s.similarityPercent = total > 0 ? Math.round((s.unchangedCount / total) * 1000) / 10 : 100;
+    s.diffBlockCount = this.diffBlocks.length;
   }
 
   /** 在 leftLines 中向后/向前查找第一个有效 lineNumberB，用于确定 B 侧插入位置 */

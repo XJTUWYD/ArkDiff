@@ -140,16 +140,16 @@ export class MyersEngine {
       const prevY = prevX - prevK;
 
       while (x > prevX && y > prevY) {
-        edits.unshift('=');
+        edits.push('=');
         x--;
         y--;
       }
 
       if (depth > 0) {
         if (x === prevX) {
-          edits.unshift('+');
-        } else if (y === prevY) {
-          edits.unshift('-');
+          edits.push('+');
+        } else {
+          edits.push('-');
         }
       }
 
@@ -157,7 +157,12 @@ export class MyersEngine {
       y = prevY;
     }
 
-    return edits;
+    // 用 push + reverse 替代 O(n²) 的 unshift
+    let reversed: string[] = [];
+    for (let i = edits.length - 1; i >= 0; i--) {
+      reversed.push(edits[i]);
+    }
+    return reversed;
   }
 
   private static editsToMatches(edits: string[]): LcsMatchedPair[] {
