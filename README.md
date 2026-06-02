@@ -186,4 +186,14 @@ PR 前请确保 `entry` 模块编译通过（DevEco Studio → Build → Make Mo
 
 ## License
 
-MIT
+ArkDiff 采用 **GNU Affero General Public License v3 (AGPL-3.0)**。
+
+- 个人使用、学习、研究、修改、分发源码 → 自由
+- 将 ArkDiff 或衍生作品用于**商业目的**（包括 SaaS、嵌入商业产品）→ 请先联系作者获取商业授权
+- 网络服务使用修改版必须公开源码
+
+[查看完整许可证](LICENSE)
+
+---
+
+[English Version](README.en.md)
