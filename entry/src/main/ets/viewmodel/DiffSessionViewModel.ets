@@ -78,7 +78,33 @@ export class DiffSessionViewModel {
   // ==================== 选项 ====================
   enableCharDiff: boolean = false;
   ignoreBlankLines: boolean = false;
+  ignoreCase: boolean = false;
+  ignoreWhitespace: boolean = false;
   isComputing: boolean = false;
+
+  /** 手动对齐映射: A 行索引(0-based) → B 行索引(0-based) */
+  manualAlignments: Map<number, number> = new Map();
+
+  addManualAlignment(leftIdx: number, rightIdx: number): void {
+    this.manualAlignments.set(leftIdx, rightIdx);
+    this.pushSnapshot('手动对齐');
+    this.runTextDiff();
+  }
+
+  removeManualAlignment(leftIdx: number): void {
+    this.manualAlignments.delete(leftIdx);
+    this.pushSnapshot('取消对齐');
+    this.runTextDiff();
+  }
+
+  clearManualAlignments(): void {
+    this.manualAlignments.clear();
+    this.runTextDiff();
+  }
+
+  get hasManualAlignments(): boolean {
+    return this.manualAlignments.size > 0;
+  }
 
   /** diff 错误信息（null = 无错误） */
   lastError: string | null = null;
@@ -102,7 +128,11 @@ export class DiffSessionViewModel {
     try {
       const options: DiffOptions = {
         ignoreBlankLines: this.ignoreBlankLines,
-        enableCharDiff: this.enableCharDiff
+        enableCharDiff: this.enableCharDiff,
+        ignoreCase: this.ignoreCase,
+        ignoreWhitespace: this.ignoreWhitespace,
+        ignoreAllWhitespace: false,
+        manualAlignments: this.manualAlignments
       };
       this.diffResult = DiffEngine.computeDiff(this.textA, this.textB, options);
       this.diffBlocks = DiffBlockLocator.locateBlocks(this.diffResult.unifiedLines);
@@ -146,7 +176,11 @@ export class DiffSessionViewModel {
 
       const options: DiffOptions = {
         ignoreBlankLines: this.ignoreBlankLines,
-        enableCharDiff: this.enableCharDiff
+        enableCharDiff: this.enableCharDiff,
+        ignoreCase: this.ignoreCase,
+        ignoreWhitespace: this.ignoreWhitespace,
+        ignoreAllWhitespace: false,
+        manualAlignments: this.manualAlignments
       };
       this.diffResult = DiffEngine.computeDiff(this.textA, this.textB, options);
       this.diffBlocks = DiffBlockLocator.locateBlocks(this.diffResult.unifiedLines);

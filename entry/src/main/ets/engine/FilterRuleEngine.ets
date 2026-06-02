@@ -172,7 +172,7 @@ export class FilterRuleEngine {
   static shouldIgnoreFile(filePath: string, patterns: string[]): boolean {
     if (!patterns || patterns.length === 0) return false;
     for (const pattern of patterns) {
-      if (this.matchesGlob(filePath, pattern)) return true;
+      if (FilterRuleEngine.matchesGlob(filePath, pattern)) return true;
     }
     return false;
   }
@@ -237,10 +237,48 @@ export class FilterRuleEngine {
    */
   static deserializeConfig(json: string): FilterConfig {
     try {
-      const parsed = JSON.parse(json);
-      return { ...DEFAULT_FILTER_CONFIG, ...parsed };
+      const parsed: object = JSON.parse(json);
+      let result: FilterConfig = {
+        ignoreWhitespace: DEFAULT_FILTER_CONFIG.ignoreWhitespace,
+        ignoreAllWhitespace: DEFAULT_FILTER_CONFIG.ignoreAllWhitespace,
+        ignoreCase: DEFAULT_FILTER_CONFIG.ignoreCase,
+        ignoreBlankLines: DEFAULT_FILTER_CONFIG.ignoreBlankLines,
+        ignorePatterns: DEFAULT_FILTER_CONFIG.ignorePatterns,
+        onlyShowDiff: DEFAULT_FILTER_CONFIG.onlyShowDiff,
+        contextLines: DEFAULT_FILTER_CONFIG.contextLines,
+      };
+      if (parsed['ignoreWhitespace'] !== undefined) {
+        result.ignoreWhitespace = parsed['ignoreWhitespace'] as boolean;
+      }
+      if (parsed['ignoreAllWhitespace'] !== undefined) {
+        result.ignoreAllWhitespace = parsed['ignoreAllWhitespace'] as boolean;
+      }
+      if (parsed['ignoreCase'] !== undefined) {
+        result.ignoreCase = parsed['ignoreCase'] as boolean;
+      }
+      if (parsed['ignoreBlankLines'] !== undefined) {
+        result.ignoreBlankLines = parsed['ignoreBlankLines'] as boolean;
+      }
+      if (parsed['ignorePatterns'] !== undefined) {
+        result.ignorePatterns = parsed['ignorePatterns'] as string[];
+      }
+      if (parsed['onlyShowDiff'] !== undefined) {
+        result.onlyShowDiff = parsed['onlyShowDiff'] as boolean;
+      }
+      if (parsed['contextLines'] !== undefined) {
+        result.contextLines = parsed['contextLines'] as number;
+      }
+      return result;
     } catch (_e) {
-      return { ...DEFAULT_FILTER_CONFIG };
+      return {
+        ignoreWhitespace: DEFAULT_FILTER_CONFIG.ignoreWhitespace,
+        ignoreAllWhitespace: DEFAULT_FILTER_CONFIG.ignoreAllWhitespace,
+        ignoreCase: DEFAULT_FILTER_CONFIG.ignoreCase,
+        ignoreBlankLines: DEFAULT_FILTER_CONFIG.ignoreBlankLines,
+        ignorePatterns: DEFAULT_FILTER_CONFIG.ignorePatterns,
+        onlyShowDiff: DEFAULT_FILTER_CONFIG.onlyShowDiff,
+        contextLines: DEFAULT_FILTER_CONFIG.contextLines,
+      };
     }
   }
 }

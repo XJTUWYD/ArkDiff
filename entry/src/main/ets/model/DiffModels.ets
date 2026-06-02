@@ -201,6 +201,25 @@ export interface AppSettings {
   ignoreBlankLines: boolean;
 }
 
+// ==================== 会话模型 ====================
+
+/** 会话模型（供 SessionManager 使用） */
+export interface DiffSessionModel {
+  /** 原始文本 A */
+  textA: string;
+  /** 修改后文本 B */
+  textB: string;
+  /** Diff 计算结果 */
+  diffResult: DiffResult | null;
+  /** 当前视图模式 */
+  viewMode: ViewMode;
+  /** Diff 引擎选项 */
+  options: DiffOptions;
+}
+
+/** 视图模式类型别名（供 SessionManager 使用） */
+export type ViewModeType = ViewMode;
+
 // ==================== LCS 算法相关类型 ====================
 
 /** LCS 匹配行对 */
@@ -227,4 +246,12 @@ export interface DiffOptions {
   ignoreBlankLines: boolean;
   /** 是否启用字符级 Diff */
   enableCharDiff: boolean;
+  /** 是否忽略大小写 */
+  ignoreCase: boolean;
+  /** 是否忽略行首尾空白 */
+  ignoreWhitespace: boolean;
+  /** 是否忽略所有空白字符 */
+  ignoreAllWhitespace: boolean;
+  /** 手动对齐映射: A 行索引 → B 行索引 */
+  manualAlignments: Map<number, number>;
 }

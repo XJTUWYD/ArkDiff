@@ -50,7 +50,11 @@ export enum MergeAction {
 export class MergeEngine {
   private static options: DiffOptions = {
     ignoreBlankLines: false,
-    enableCharDiff: false
+    enableCharDiff: false,
+    ignoreCase: false,
+    ignoreWhitespace: false,
+    ignoreAllWhitespace: false,
+    manualAlignments: new Map<number, number>()
   };
 
   /**

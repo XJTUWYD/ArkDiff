@@ -9,7 +9,7 @@ import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffOverviewBar } from '../components/DiffOverviewBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
-import { FileUtils } from '../utils/FileUtils';
+import { FileContentService } from '../services/FileContentService';
 import { ViewMode, DiffOptions, CharSegment } from '../model/DiffModels';
 import { DiffEngine } from '../engine/DiffEngine';
 import { TokenType, TokenHighlighter, Token } from '../engine/TokenHighlighter';
@@ -252,7 +252,7 @@ struct MultiTabDiffPage {
           if (this.diffBlocks.length > 0) {
             DiffOverviewBar({
               blocks: this.diffBlocks, totalLines: this.lineTypes.length,
-              isMonokai: this.colorMode === 'monokai', activeIdx: this.navIdx,
+              isMonokai: this.colorMode === 'monokai', isDark: this.colorMode === 'dark', activeIdx: this.navIdx,
               onJumpToBlock: (idx: number) => { this.navIdx = idx; this.scrollToBlock(idx); }
             }).width(10).height('100%')
           }
@@ -264,9 +264,8 @@ struct MultiTabDiffPage {
 
       Divider().height(1).color('#E0E0E0')
       DiffNavigator({
-        totalBlocks: this.blockCnt, currentIndex: this.navIdx, inputPanelVisible: this.inputVisible,
-        onNavigateTo: (i: number) => { this.navIdx = i; },
-        onToggleInput: () => { this.inputVisible = !this.inputVisible; }
+        totalBlocks: this.blockCnt, currentIndex: this.navIdx,
+        onNavigateTo: (i: number) => { this.navIdx = i; }
       }).width('100%').height(40)
     }
     .width('100%').height('100%').backgroundColor(this.colorMode === 'monokai' ? '#1E1F1C' : '#F5F5F5')
@@ -352,7 +351,7 @@ struct MultiTabDiffPage {
 
   private doDiffInternal(textA: string, textB: string): void {
     if (textA.length === 0 && textB.length === 0) return;
-    const result = DiffEngine.computeDiff(textA, textB, { ignoreBlankLines: this.ignoreBlankLines, enableCharDiff: true });
+    const result = DiffEngine.computeDiff(textA, textB, { ignoreBlankLines: this.ignoreBlankLines, enableCharDiff: true, ignoreCase: false, ignoreWhitespace: false, ignoreAllWhitespace: false, manualAlignments: new Map<number, number>() });
     this.lineTypes = []; this.lineContents = []; this.lineNosA = []; this.lineNosB = []; this.charSegs = [];
     for (let line of result.unifiedLines) {
       this.lineTypes.push(line.type); this.lineContents.push(line.content);
@@ -415,7 +414,7 @@ struct MultiTabDiffPage {
   private clearRecent(): void { this.recentFiles = []; this.recentFilesRaw = '[]'; }
 
   private openRecent(rf: RecentFile): void {
-    try { this.tabs[this.activeIdx].textA = FileUtils.readFile(rf.path); this.doTabLabel(); } catch (_e) {}
+    try { this.tabs[this.activeIdx].textA = FileContentService.readFileContent(rf.path).content; this.doTabLabel(); } catch (_e) {}
   }
 
   private formatTime(ts: number): string { return new Date(ts).toLocaleDateString(); }
@@ -427,8 +426,8 @@ struct MultiTabDiffPage {
       new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions)
         .then((uris: string[]) => {
           if (uris.length > 0) {
-            const name = FileUtils.getFileName(uris[0]);
-            this.tabs[this.activeIdx].textA = FileUtils.readFile(uris[0]);
+            const name = FileContentService.extractFileName(uris[0]);
+            this.tabs[this.activeIdx].textA = FileContentService.readFileContent(uris[0]).content;
             this.tabs[this.activeIdx].fileAName = name;
             this.doTabLabel();
             this.saveRecent(name, uris[0]);
@@ -443,8 +442,8 @@ struct MultiTabDiffPage {
       new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions)
         .then((uris: string[]) => {
           if (uris.length > 0) {
-            const name = FileUtils.getFileName(uris[0]);
-            this.tabs[this.activeIdx].textB = FileUtils.readFile(uris[0]);
+            const name = FileContentService.extractFileName(uris[0]);
+            this.tabs[this.activeIdx].textB = FileContentService.readFileContent(uris[0]).content;
             this.tabs[this.activeIdx].fileBName = name;
             this.doTabLabel();
             this.saveRecent(name, uris[0]);

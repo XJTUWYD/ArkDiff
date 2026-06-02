@@ -1,13 +1,11 @@
 /**
  * AegisDiff — FolderDiffPage (文件对比)
- * 使用 DiffEngine 进行文件内容差异分析
- * 文件读取统一委托给 FileContentService
+ *
+ * 文件选择 + 跳转至 DiffEditorPage（复用全部分栏/编辑/合入/搜索/导航等 Meld 功能）
  */
 import { router } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
-import { DiffEngine } from '../engine/DiffEngine';
-import { FileContentService, FileContent } from '../services/FileContentService';
-import { DiffLine, DiffOptions, DiffType } from '../model/DiffModels';
+import { FileContentService } from '../services/FileContentService';
 
 interface FileInfo {
   name: string;
@@ -20,9 +18,6 @@ interface FileInfo {
 struct FolderDiffPage {
   @State fileA: FileInfo | null = null;
   @State fileB: FileInfo | null = null;
-  @State added: number = 0; @State deleted: number = 0; @State modified: number = 0;
-  @State similarity: number = 100;
-  @State previewLines: DiffLine[] = [];
 
   build() {
     Column() {
@@ -79,70 +74,23 @@ struct FolderDiffPage {
       .width('100%').padding({ top: 24, bottom: 24 }).backgroundColor('#FFFFFF')
       .border({ width: { bottom: 1 }, color: '#E0E0E0' })
 
-      if (this.fileA && this.fileB) {
-        Row() {
-          Text(`+${this.added}`).fontSize(14).fontColor('#1A7F37').fontWeight(FontWeight.Medium)
-          Text(`-${this.deleted}`).fontSize(14).fontColor('#BE2E2E').fontWeight(FontWeight.Medium).margin({ left: 16, right: 16 })
-          Text(`~${this.modified}`).fontSize(14).fontColor('#D4A017').fontWeight(FontWeight.Medium).margin({ right: 16 })
-          Text(`${this.similarity}%`).fontSize(14).fontColor('#333333').fontWeight(FontWeight.Medium)
-          Text(' 相似').fontSize(12).fontColor('#999999')
-        }
-        .width('100%').height(44).justifyContent(FlexAlign.Center)
-        .backgroundColor('#FFFFFF').borderRadius(10)
-        .margin({ left: 12, right: 12, top: 12 })
+      Column() {
+        Text('选择两个文件后进入对比视图').fontSize(13).fontColor('#999999').margin({ bottom: 12 })
 
-        Scroll() {
-          Column() {
-            ForEach(this.previewLines, (line: DiffLine, i: number) => {
-              Row() {
-                Text(line.lineNumberA > 0 ? `${line.lineNumberA}` : line.lineNumberB > 0 ? `${line.lineNumberB}` : '')
-                  .fontSize(10).fontColor('#999999').width(26).textAlign(TextAlign.End).fontFamily('monospace')
-                Text(this.getPrefix(line.type)).fontSize(11).fontWeight(FontWeight.Bold)
-                  .fontColor(this.getDiffColor(line.type)).width(14).textAlign(TextAlign.Center)
-                Text(line.content).fontSize(11).fontFamily('monospace')
-                  .fontColor('#1C1C1C')
-                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).padding({ left: 4, right: 4 }).layoutWeight(1)
-              }
-              .width('100%').height(20)
-              .backgroundColor(this.getDiffBg(line.type)).padding({ left: 4 })
-            }, (line: DiffLine, i: number) => `qp_${i}`)
-          }.width('100%')
-        }
-        .width('100%').layoutWeight(1).scrollBar(BarState.Auto)
-        .backgroundColor('#FFFFFF').borderRadius(10)
-        .margin({ left: 12, right: 12, top: 8 })
+        Button('进入对比').fontSize(14).height(40).type(ButtonType.Capsule)
+          .backgroundColor('#007AFF').fontColor(Color.White).borderRadius(10)
+          .padding({ left: 32, right: 32 })
+          .enabled(this.fileA !== null && this.fileB !== null)
+          .onClick(() => { this.openDiffEditor(); })
+
+        Text('将使用完整的分栏对比、行内编辑、差异导航等功能')
+          .fontSize(11).fontColor('#BBBBBB').margin({ top: 12 })
       }
+      .width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
 
       Blank()
     }
     .width('100%').height('100%').backgroundColor('#F5F5F5')
-  }
-
-  private getPrefix(type: DiffType): string {
-    switch (type) {
-      case DiffType.ADDED: return '+';
-      case DiffType.DELETED: return '-';
-      case DiffType.MODIFIED: return '~';
-      default: return ' ';
-    }
-  }
-
-  private getDiffColor(type: DiffType): string {
-    switch (type) {
-      case DiffType.ADDED: return '#1A7F37';
-      case DiffType.DELETED: return '#BE2E2E';
-      case DiffType.MODIFIED: return '#D4A017';
-      default: return '#CCCCCC';
-    }
-  }
-
-  private getDiffBg(type: DiffType): string {
-    switch (type) {
-      case DiffType.ADDED: return '#E6FFEC';
-      case DiffType.DELETED: return '#FFEBE9';
-      case DiffType.MODIFIED: return '#FFF3D4';
-      default: return '#FFFFFF';
-    }
   }
 
   private selectFileA(): void {
@@ -155,13 +103,12 @@ struct FolderDiffPage {
         if (uris.length > 0) {
           const fc = FileContentService.readFileContent(uris[0]);
           this.fileA = { name: fc.fileName, size: fc.sizeBytes, content: fc.content };
-          if (fc.error) {
+          if (fc.error && !fc.isBinary) {
             AlertDialog.show({ title: '提示', message: fc.error, autoCancel: true });
           }
           if (fc.isBinary && !fc.content) {
             AlertDialog.show({ title: '提示', message: '二进制文件暂不支持文本比较', autoCancel: true });
           }
-          this.computeDiff();
         }
       });
     } catch (e) { /* ignore */ }
@@ -177,30 +124,25 @@ struct FolderDiffPage {
         if (uris.length > 0) {
           const fc = FileContentService.readFileContent(uris[0]);
           this.fileB = { name: fc.fileName, size: fc.sizeBytes, content: fc.content };
-          if (fc.error) {
+          if (fc.error && !fc.isBinary) {
             AlertDialog.show({ title: '提示', message: fc.error, autoCancel: true });
           }
           if (fc.isBinary && !fc.content) {
             AlertDialog.show({ title: '提示', message: '二进制文件暂不支持文本比较', autoCancel: true });
           }
-          this.computeDiff();
         }
       });
     } catch (e) { /* ignore */ }
   }
 
-  private computeDiff(): void {
+  /** 将选中的文件内容传递到 DiffEditorPage 并跳转 */
+  private openDiffEditor(): void {
     if (!this.fileA || !this.fileB) return;
-    const options: DiffOptions = {
-      ignoreBlankLines: false,
-      enableCharDiff: false
-    };
-    const result = DiffEngine.computeDiff(this.fileA.content, this.fileB.content, options);
-    this.previewLines = result.unifiedLines;
-    this.added = result.stats.addedCount;
-    this.deleted = result.stats.deletedCount;
-    this.modified = result.stats.modifiedCount;
-    this.similarity = result.stats.similarityPercent;
+    AppStorage.setOrCreate('dirDiffContentA', this.fileA.content);
+    AppStorage.setOrCreate('dirDiffContentB', this.fileB.content);
+    AppStorage.setOrCreate('dirDiffNameA', this.fileA.name);
+    AppStorage.setOrCreate('dirDiffNameB', this.fileB.name);
+    router.pushUrl({ url: 'pages/DiffEditorPage' });
   }
 
   private formatSize(bytes: number): string {

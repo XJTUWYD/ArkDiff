@@ -1,42 +1,52 @@
 /**
  * AegisDiff — DiffNavigator 组件
+ * 差异块导航条，支持打开文件 (Meld 风格)
  */
+import { ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors } from '../utils/ThemeTokens';
+
 @Component
 export struct DiffNavigator {
   @Prop totalBlocks: number = 0;
   @Prop currentIndex: number = 0;
-  @Prop inputPanelVisible: boolean = true;
+  @Prop isMonokai: boolean = false;
+  @Prop isDark: boolean = false;
   onNavigateTo: (index: number) => void = () => {};
-  onToggleInput: () => void = () => {};
+  onPickFileA?: () => void;
+  onPickFileB?: () => void;
 
   build() {
     Row() {
-      Button({ type: ButtonType.Circle }) {
-        Text(this.inputPanelVisible ? '^' : 'v').fontSize(14).fontColor('#666666')
-      }
-      .width(32).height(32).backgroundColor(Color.Transparent)
-      .onClick(() => { this.onToggleInput(); })
+      Button('📄 A').fontSize(10).height(24).type(ButtonType.Capsule)
+        .backgroundColor(this.getTheme().diffAddedBackground)
+        .fontColor(this.getTheme().diffAddedForeground)
+        .borderRadius(8).padding({ left: 8, right: 8 })
+        .onClick(() => { if (this.onPickFileA) this.onPickFileA(); })
+      Button('📄 B').fontSize(10).height(24).type(ButtonType.Capsule)
+        .backgroundColor(this.getTheme().diffDeletedBackground)
+        .fontColor(this.getTheme().diffDeletedForeground)
+        .borderRadius(8).padding({ left: 8, right: 8 }).margin({ left: 4 })
+        .onClick(() => { if (this.onPickFileB) this.onPickFileB(); })
 
       Row() {
         Button({ type: ButtonType.Circle }) {
-          Text('<').fontSize(16)
-            .fontColor(this.currentIndex > 0 ? '#1C1C1C' : '#999999')
+          Text('▲').fontSize(14)
+            .fontColor(this.currentIndex > 0 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
         }
-        .width(32).height(32).backgroundColor(Color.Transparent)
+        .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex > 0)
         .onClick(() => {
           if (this.currentIndex > 0) { this.onNavigateTo(this.currentIndex - 1); }
         })
 
         Text(`${this.currentIndex + 1} / ${this.totalBlocks}`)
-          .fontSize(14).fontColor('#666666').fontWeight(FontWeight.Medium)
+          .fontSize(13).fontColor(this.getTheme().textSecondary).fontWeight(FontWeight.Medium)
           .width(64).textAlign(TextAlign.Center)
 
         Button({ type: ButtonType.Circle }) {
-          Text('>').fontSize(16)
-            .fontColor(this.currentIndex < this.totalBlocks - 1 ? '#1C1C1C' : '#999999')
+          Text('▼').fontSize(14)
+            .fontColor(this.currentIndex < this.totalBlocks - 1 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
         }
-        .width(32).height(32).backgroundColor(Color.Transparent)
+        .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex < this.totalBlocks - 1)
         .onClick(() => {
           if (this.currentIndex < this.totalBlocks - 1) { this.onNavigateTo(this.currentIndex + 1); }
@@ -44,9 +54,15 @@ export struct DiffNavigator {
       }
       .layoutWeight(1).justifyContent(FlexAlign.Center)
 
-      Row().width(32).height(32)
+      Row().width(28).height(28)
     }
     .width('100%').height('100%').padding({ left: 8, right: 8 })
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(this.getTheme().surfaceBackground)
+  }
+
+  private getTheme(): ThemeColorMap {
+    if (this.isMonokai) return getMonokaiColors();
+    if (this.isDark) return getDarkColors();
+    return getLightColors();
   }
 }

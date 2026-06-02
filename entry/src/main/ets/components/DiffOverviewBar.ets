@@ -3,12 +3,14 @@
  * 在滚动区域右侧显示差异块的位置指示器
  */
 import { DiffBlock } from '../engine/DiffBlockLocator';
+import { ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors } from '../utils/ThemeTokens';
 
 @Component
 export struct DiffOverviewBar {
   @Prop blocks: DiffBlock[] = [];
   @Prop totalLines: number = 0;
   @Prop isMonokai: boolean = false;
+  @Prop isDark: boolean = false;
   @Prop activeIdx: number = 0;
   onJumpToBlock: (idx: number) => void = () => {};
 
@@ -29,7 +31,13 @@ export struct DiffOverviewBar {
     .width(8).height('100%')
     .justifyContent(FlexAlign.Start)
     .padding({ top: 2, bottom: 2 })
-    .backgroundColor(this.isMonokai ? '#1E1E1E' : '#F5F5F5')
+    .backgroundColor(this.getTheme().pageBackground)
+  }
+
+  private getTheme(): ThemeColorMap {
+    if (this.isMonokai) return getMonokaiColors();
+    if (this.isDark) return getDarkColors();
+    return getLightColors();
   }
 
   private blockTopPct(block: DiffBlock): number {
@@ -43,8 +51,9 @@ export struct DiffOverviewBar {
   }
 
   private blockColor(block: DiffBlock): string {
-    if (block.blockType === 1) return this.isMonokai ? '#A6E22E' : '#1A7F37';
-    if (block.blockType === 2) return this.isMonokai ? '#F92672' : '#BE2E2E';
-    return this.isMonokai ? '#E6DB74' : '#D4A017';
+    const t = this.getTheme();
+    if (block.blockType === 1) return t.diffAddedForeground;
+    if (block.blockType === 2) return t.diffDeletedForeground;
+    return t.diffModifiedForeground;
   }
 }

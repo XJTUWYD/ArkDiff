@@ -59,6 +59,7 @@ export class ThemeColors {
   get diffDeletedForeground(): string { return this.colors.diffDeletedForeground; }
   get diffModifiedBackground(): string { return this.colors.diffModifiedBackground; }
   get diffModifiedGutterBackground(): string { return this.colors.diffModifiedGutterBackground; }
+  get diffModifiedForeground(): string { return this.colors.diffModifiedForeground; }
   get diffUnchangedBackground(): string { return this.colors.diffUnchangedBackground; }
   get pageBackground(): string { return this.colors.pageBackground; }
   get surfaceBackground(): string { return this.colors.surfaceBackground; }
@@ -68,4 +69,13 @@ export class ThemeColors {
   get dividerColor(): string { return this.colors.dividerColor; }
   get highlightFlashColor(): string { return this.colors.highlightFlashColor; }
   get toolbarBackground(): string { return this.colors.toolbarBackground; }
+  get contentColor(): string { return this.colors.contentColor; }
+  get editingBackground(): string { return this.colors.editingBackground; }
+  get searchMatchBackground(): string { return this.colors.searchMatchBackground; }
+  get highlightedBlockBackground(): string { return this.colors.highlightedBlockBackground; }
+  get charAddedColor(): string { return this.colors.charAddedColor; }
+  get prefixAdded(): string { return this.colors.prefixAdded; }
+  get prefixDeleted(): string { return this.colors.prefixDeleted; }
+  get prefixModified(): string { return this.colors.prefixModified; }
+  get prefixDefault(): string { return this.colors.prefixDefault; }
 }

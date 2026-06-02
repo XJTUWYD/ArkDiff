@@ -14,6 +14,7 @@ export class ThemeColorMap {
   diffDeletedForeground: string = '';
   diffModifiedBackground: string = '';
   diffModifiedGutterBackground: string = '';
+  diffModifiedForeground: string = '';
   diffUnchangedBackground: string = '';
   pageBackground: string = '';
   surfaceBackground: string = '';
@@ -23,6 +24,15 @@ export class ThemeColorMap {
   dividerColor: string = '';
   highlightFlashColor: string = '';
   toolbarBackground: string = '';
+  contentColor: string = '';
+  editingBackground: string = '';
+  searchMatchBackground: string = '';
+  highlightedBlockBackground: string = '';
+  charAddedColor: string = '';
+  prefixAdded: string = '';
+  prefixDeleted: string = '';
+  prefixModified: string = '';
+  prefixDefault: string = '';
 }
 
 // ==================== Diff 着色 Tokens（Light 模式） ====================
@@ -37,6 +47,7 @@ export function getLightColors(): ThemeColorMap {
   c.diffDeletedForeground = '#BE2E2E';
   c.diffModifiedBackground = '#FFF3D4';
   c.diffModifiedGutterBackground = '#F0DFA0';
+  c.diffModifiedForeground = '#D4A017';
   c.diffUnchangedBackground = '#FFFFFF';
   c.pageBackground = '#F5F5F5';
   c.surfaceBackground = '#FFFFFF';
@@ -46,6 +57,15 @@ export function getLightColors(): ThemeColorMap {
   c.dividerColor = '#E0E0E0';
   c.highlightFlashColor = '#FFD54F';
   c.toolbarBackground = '#FFFFFF';
+  c.contentColor = '#1C1C1C';
+  c.editingBackground = '#E3F2FD';
+  c.searchMatchBackground = '#FFD54F';
+  c.highlightedBlockBackground = '#FFF9C4';
+  c.charAddedColor = '#1A7F37';
+  c.prefixAdded = '#1A7F37';
+  c.prefixDeleted = '#BE2E2E';
+  c.prefixModified = '#D4A017';
+  c.prefixDefault = '#CCCCCC';
   return c;
 }
 
@@ -61,6 +81,7 @@ export function getDarkColors(): ThemeColorMap {
   c.diffDeletedForeground = '#F06A6A';
   c.diffModifiedBackground = '#3A3010';
   c.diffModifiedGutterBackground = '#2A2008';
+  c.diffModifiedForeground = '#E6DB74';
   c.diffUnchangedBackground = '#1A1A1A';
   c.pageBackground = '#0D0D0D';
   c.surfaceBackground = '#1A1A1A';
@@ -70,6 +91,15 @@ export function getDarkColors(): ThemeColorMap {
   c.dividerColor = '#333333';
   c.highlightFlashColor = '#4A3800';
   c.toolbarBackground = '#1A1A1A';
+  c.contentColor = '#E8E8E8';
+  c.editingBackground = '#2A2A40';
+  c.searchMatchBackground = '#49483E';
+  c.highlightedBlockBackground = '#3A3A2A';
+  c.charAddedColor = '#6FE08A';
+  c.prefixAdded = '#6FE08A';
+  c.prefixDeleted = '#F06A6A';
+  c.prefixModified = '#E6DB74';
+  c.prefixDefault = '#666666';
   return c;
 }
 
@@ -85,6 +115,7 @@ export function getMonokaiColors(): ThemeColorMap {
   c.diffDeletedForeground = '#F92672';
   c.diffModifiedBackground = '#33301A';
   c.diffModifiedGutterBackground = '#242012';
+  c.diffModifiedForeground = '#E6DB74';
   c.diffUnchangedBackground = '#272822';
   c.pageBackground = '#1E1F1C';
   c.surfaceBackground = '#272822';
@@ -94,6 +125,15 @@ export function getMonokaiColors(): ThemeColorMap {
   c.dividerColor = '#3E3D32';
   c.highlightFlashColor = '#49483E';
   c.toolbarBackground = '#272822';
+  c.contentColor = '#F8F8F2';
+  c.editingBackground = '#2A2A40';
+  c.searchMatchBackground = '#49483E';
+  c.highlightedBlockBackground = '#3A3A2A';
+  c.charAddedColor = '#A6E22E';
+  c.prefixAdded = '#A6E22E';
+  c.prefixDeleted = '#F92672';
+  c.prefixModified = '#E6DB74';
+  c.prefixDefault = '#75715E';
   return c;
 }
 

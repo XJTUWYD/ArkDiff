@@ -9,6 +9,8 @@ struct SettingsPage {
   @StorageLink('colorMode') colorMode: string = 'auto';
   @StorageLink('codeFontSize') codeFontSize: number = 14;
   @StorageLink('ignoreBlankLines') ignoreBlankLines: boolean = false;
+  @StorageLink('ignoreCase') ignoreCase: boolean = false;
+  @StorageLink('ignoreWhitespace') ignoreWhitespace: boolean = false;
   @StorageLink('currentBreakpoint') currentBp: string = 'sm';
 
   build() {
@@ -76,6 +78,24 @@ struct SettingsPage {
             Text('忽略空白行').fontSize(14).layoutWeight(1)
             Toggle({ type: ToggleType.Switch, isOn: this.ignoreBlankLines })
               .onChange((v: boolean) => { this.ignoreBlankLines = v; })
+          }
+          .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
+        }
+
+        ListItem() {
+          Row() {
+            Text('忽略大小写').fontSize(14).layoutWeight(1)
+            Toggle({ type: ToggleType.Switch, isOn: this.ignoreCase })
+              .onChange((v: boolean) => { this.ignoreCase = v; })
+          }
+          .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
+        }
+
+        ListItem() {
+          Row() {
+            Text('忽略行首尾空白').fontSize(14).layoutWeight(1)
+            Toggle({ type: ToggleType.Switch, isOn: this.ignoreWhitespace })
+              .onChange((v: boolean) => { this.ignoreWhitespace = v; })
           }
           .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
         }

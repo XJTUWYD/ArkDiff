@@ -580,7 +580,7 @@ struct DirectoryDiffPage {
   private calcSimilarity(a: string, b: string): number {
     if (a === b) return 100;
     if (a.length === 0 || b.length === 0) return 0;
-    const options: DiffOptions = { ignoreBlankLines: false, enableCharDiff: false };
+    const options: DiffOptions = { ignoreBlankLines: false, enableCharDiff: false, ignoreCase: false, ignoreWhitespace: false, ignoreAllWhitespace: false, manualAlignments: new Map<number, number>() };
     try {
       const result = DiffEngine.computeDiff(a, b, options);
       return Math.round(result.stats.similarityPercent * 10) / 10;

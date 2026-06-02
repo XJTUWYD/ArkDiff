@@ -17,6 +17,7 @@ import { LcsEngine } from './LcsEngine';
 import { MyersEngine } from './MyersEngine';
 import { StatsCalculator } from './StatsCalculator';
 import { CharDiffEngine } from './CharDiffEngine';
+import { FilterRuleEngine, FilterConfig } from './FilterRuleEngine';
 import { LCS_MAX_LINES } from '../utils/ThemeTokens';
 
 class DiffSideBySideResult {
@@ -45,14 +46,33 @@ export class DiffEngine {
       linesB = LineParser.filterBlankLines(linesB);
     }
 
-    // Step 3: 执行 Diff 算法（基于 linesA/linesB，可能已过滤）
-    //   LCS 匹配对中的 indexA/indexB 指向 linesA/linesB 的索引
-    const lcsResult = DiffEngine.selectAndRunAlgorithm(linesA, linesB);
+    // Step 2.5: 手动对齐 — 如果指定了手动对齐，分段执行 diff
+    if (options.manualAlignments.size > 0) {
+      return DiffEngine.computeDiffWithAlignments(linesA, linesB, options, startTime);
+    }
 
-    // Step 4: 由 LCS 匹配对 + linesA/linesB 构建 DiffLine[]
-    //   【修复】linesA/linesB 必须与 selectAndRunAlgorithm 使用的数组一致，
-    //   否则 ignoreBlankLines 时 LCS 索引会指向过滤后行号，但传入原始行数组会导致行号错位、
-    //   cursor 游标无法匹配 match.indexA/indexB 从而产生错误 diff 结果。
+    // Step 2.6: 构建用于比较的规范化行
+    const needsNormalize = options.ignoreCase || options.ignoreWhitespace || options.ignoreAllWhitespace;
+    let compareLinesA = linesA;
+    let compareLinesB = linesB;
+    const normConfig: FilterConfig = {
+      ignoreWhitespace: options.ignoreWhitespace,
+      ignoreAllWhitespace: options.ignoreAllWhitespace,
+      ignoreCase: options.ignoreCase,
+      ignoreBlankLines: false,
+      ignorePatterns: [],
+      onlyShowDiff: false,
+      contextLines: 0
+    };
+    if (needsNormalize) {
+      compareLinesA = linesA.map(l => FilterRuleEngine.normalizeLine(l, normConfig));
+      compareLinesB = linesB.map(l => FilterRuleEngine.normalizeLine(l, normConfig));
+    }
+
+    // Step 3: 执行 Diff 算法
+    const lcsResult = DiffEngine.selectAndRunAlgorithm(compareLinesA, compareLinesB);
+
+    // Step 4: 构建 DiffLine[]
     const unifiedLines = DiffEngine.buildUnifiedLines(
       lcsResult, linesA, linesB, options
     );
@@ -83,12 +103,128 @@ export class DiffEngine {
     const m = linesA.length;
     const n = linesB.length;
 
-    // 行数较小 → LCS
     if (m <= LCS_MAX_LINES && n <= LCS_MAX_LINES) {
       return LcsEngine.compute(linesA, linesB);
     }
-    // 行数较大 → Myers
     return MyersEngine.compute(linesA, linesB);
+  }
+
+  /**
+   * 支持手动对齐的分段 diff 计算
+   * 将对齐点作为分割边界，在每个独立的段内执行 diff，再拼接结果
+   */
+  private static computeDiffWithAlignments(
+    linesA: string[], linesB: string[], options: DiffOptions, startTime: number
+  ): DiffResult {
+    const alignments = options.manualAlignments;
+    // 将对齐点按 A 侧索引排序
+    const sortedAligns: number[][] = [];
+    alignments.forEach((bIdx: number, aIdx: number) => {
+      sortedAligns.push([aIdx, bIdx]);
+    });
+    sortedAligns.sort((a, b) => a[0] - b[0]);
+
+    const allUnified: DiffLine[] = [];
+    let prevEndA = 0;
+    let prevEndB = 0;
+
+    for (const pair of sortedAligns) {
+      const alignA = pair[0];
+      const alignB = pair[1];
+      if (alignA > prevEndA || alignB > prevEndB) {
+        // diff 一个段: [prevEndA, alignA) vs [prevEndB, alignB)
+        const segA = linesA.slice(prevEndA, alignA);
+        const segB = linesB.slice(prevEndB, alignB);
+        // 规范化
+        const needsNorm = options.ignoreCase || options.ignoreWhitespace || options.ignoreAllWhitespace;
+        let cmpSegA = segA;
+        let cmpSegB = segB;
+        if (needsNorm) {
+          const cfg: FilterConfig = { ignoreWhitespace: options.ignoreWhitespace, ignoreAllWhitespace: options.ignoreAllWhitespace,
+            ignoreCase: options.ignoreCase, ignoreBlankLines: false, ignorePatterns: [], onlyShowDiff: false, contextLines: 0 };
+          cmpSegA = segA.map(l => FilterRuleEngine.normalizeLine(l, cfg));
+          cmpSegB = segB.map(l => FilterRuleEngine.normalizeLine(l, cfg));
+        }
+        const segLcs = DiffEngine.selectAndRunAlgorithm(cmpSegA, cmpSegB);
+        const segUnified = DiffEngine.buildUnifiedLinesWithOffset(segLcs, segA, segB, prevEndA, prevEndB, options);
+        allUnified.push(...segUnified);
+      }
+      // 添加对齐行（UNCHANGED）
+      if (alignA < linesA.length && alignB < linesB.length) {
+        allUnified.push(DiffEngine.makeLine(alignA + 1, alignB + 1, linesA[alignA], '', DiffType.UNCHANGED, []));
+      }
+      prevEndA = alignA + 1;
+      prevEndB = alignB + 1;
+    }
+
+    // 最后一段: [prevEndA, end) vs [prevEndB, end)
+    if (prevEndA < linesA.length || prevEndB < linesB.length) {
+      const segA = linesA.slice(prevEndA);
+      const segB = linesB.slice(prevEndB);
+      const needsNorm = options.ignoreCase || options.ignoreWhitespace || options.ignoreAllWhitespace;
+      let cmpSegA = segA;
+      let cmpSegB = segB;
+      if (needsNorm) {
+        const cfg: FilterConfig = { ignoreWhitespace: options.ignoreWhitespace, ignoreAllWhitespace: options.ignoreAllWhitespace,
+          ignoreCase: options.ignoreCase, ignoreBlankLines: false, ignorePatterns: [], onlyShowDiff: false, contextLines: 0 };
+        cmpSegA = segA.map(l => FilterRuleEngine.normalizeLine(l, cfg));
+        cmpSegB = segB.map(l => FilterRuleEngine.normalizeLine(l, cfg));
+      }
+      const segLcs = DiffEngine.selectAndRunAlgorithm(cmpSegA, cmpSegB);
+      const segUnified = DiffEngine.buildUnifiedLinesWithOffset(segLcs, segA, segB, prevEndA, prevEndB, options);
+      allUnified.push(...segUnified);
+    }
+
+    const sbsResult = DiffEngine.buildSideBySideLines(allUnified);
+    const stats = StatsCalculator.calculate(allUnified);
+    return {
+      unifiedLines: allUnified,
+      leftLines: sbsResult.leftLines,
+      rightLines: sbsResult.rightLines,
+      stats,
+      elapsedMs: Date.now() - startTime
+    };
+  }
+
+  /**
+   * 带行号偏移的 Unified 行构建（用于手动对齐分段 diff）
+   */
+  private static buildUnifiedLinesWithOffset(
+    lcsResult: LcsResult, linesA: string[], linesB: string[],
+    offsetA: number, offsetB: number, options: DiffOptions
+  ): DiffLine[] {
+    const result: DiffLine[] = [];
+    const matches = lcsResult.matches;
+    let cursorA = 0;
+    let cursorB = 0;
+    let matchIdx = 0;
+
+    while (cursorA < linesA.length || cursorB < linesB.length) {
+      if (matchIdx < matches.length) {
+        const match = matches[matchIdx];
+        while (cursorA < linesA.length && cursorA < match.indexA) {
+          result.push(DiffEngine.makeLine(offsetA + cursorA + 1, -1, linesA[cursorA], '', DiffType.DELETED, []));
+          cursorA++;
+        }
+        while (cursorB < linesB.length && cursorB < match.indexB) {
+          result.push(DiffEngine.makeLine(-1, offsetB + cursorB + 1, linesB[cursorB], '', DiffType.ADDED, []));
+          cursorB++;
+        }
+        result.push(DiffEngine.makeLine(offsetA + cursorA + 1, offsetB + cursorB + 1, linesA[cursorA], '', DiffType.UNCHANGED, []));
+        cursorA++; cursorB++; matchIdx++;
+      } else {
+        while (cursorA < linesA.length) {
+          result.push(DiffEngine.makeLine(offsetA + cursorA + 1, -1, linesA[cursorA], '', DiffType.DELETED, []));
+          cursorA++;
+        }
+        while (cursorB < linesB.length) {
+          result.push(DiffEngine.makeLine(-1, offsetB + cursorB + 1, linesB[cursorB], '', DiffType.ADDED, []));
+          cursorB++;
+        }
+        break;
+      }
+    }
+    return DiffEngine.mergeAdjacentChanges(result, options);
   }
 
   /**
