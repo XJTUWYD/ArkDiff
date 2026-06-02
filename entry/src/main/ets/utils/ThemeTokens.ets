@@ -385,8 +385,8 @@ export const BREAKPOINT_PHONE = 480;
 
 // ==================== 性能常量 ====================
 
-/** LCS 算法最大行数阈值，超过此值切换 Myers 或简化算法 */
-export const LCS_MAX_LINES = 3000;
+/** LCS 算法最大行数阈值，超过此值切换 Myers（优先 C++ Native） */
+export const LCS_MAX_LINES = 200;
 
 /** LazyForEach 视口外预渲染行数 */
 export const LAZY_FOR_EACH_CACHED_COUNT = 20;

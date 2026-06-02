@@ -1,8 +1,8 @@
 /**
  * AegisDiff — DiffEditorPage（Meld 风格双栏对比编辑器）
  *
- * 没有独立的输入面板，所有编辑在 diff 视图内行内完成。
- * 同步按钮（← →）修改源码后立即重算 diff 并刷新显示。
+ * 使用 LazyForEach 虚拟列表渲染大 diff（>500 行），仅渲染可视区域。
+ * 同步按钮（← →）整块同步，修改源码后立即重算 diff 并刷新显示。
  */
 import { router } from '@kit.ArkUI';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
@@ -22,6 +22,8 @@ import {
   ButtonColorMap, getLightButtonColors, getDarkButtonColors
 } from '../utils/ThemeTokens';
 
+// ==================== 数据模型 ====================
+
 interface SbsPair {
   leftType: number;
   leftContent: string;
@@ -29,13 +31,67 @@ interface SbsPair {
   rightType: number;
   rightContent: string;
   rightLineNo: number;
+  isLeftBlockStart: boolean;
+  isRightBlockStart: boolean;
 }
 
 interface DisplayItem {
-  kind: number;
+  kind: number;   // 0=行渲染, 1=折叠间隙
   lineIdx: number;
   gapCount: number;
 }
+
+// ==================== LazyForEach 数据源 ====================
+
+class SbsDataSource implements IDataSource {
+  private items: SbsPair[] = [];
+  private listeners: DataChangeListener[] = [];
+
+  setItems(items: SbsPair[]): void {
+    this.items = items;
+    this.notifyReload();
+  }
+
+  totalCount(): number { return this.items.length; }
+  getData(index: number): SbsPair { return this.items[index]; }
+
+  registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener);
+  }
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const p = this.listeners.indexOf(listener);
+    if (p >= 0) this.listeners.splice(p, 1);
+  }
+  notifyReload(): void {
+    this.listeners.forEach(l => l.onDataReloaded());
+  }
+}
+
+class DisplayDataSource implements IDataSource {
+  private items: DisplayItem[] = [];
+  private listeners: DataChangeListener[] = [];
+
+  setItems(items: DisplayItem[]): void {
+    this.items = items;
+    this.notifyReload();
+  }
+
+  totalCount(): number { return this.items.length; }
+  getData(index: number): DisplayItem { return this.items[index]; }
+
+  registerDataChangeListener(listener: DataChangeListener): void {
+    if (this.listeners.indexOf(listener) < 0) this.listeners.push(listener);
+  }
+  unregisterDataChangeListener(listener: DataChangeListener): void {
+    const p = this.listeners.indexOf(listener);
+    if (p >= 0) this.listeners.splice(p, 1);
+  }
+  notifyReload(): void {
+    this.listeners.forEach(l => l.onDataReloaded());
+  }
+}
+
+// ==================== 页面 ====================
 
 @Entry
 @Component
@@ -46,8 +102,8 @@ struct DiffEditorPage {
   @StorageLink('ignoreCase') ignoreCase: boolean = false;
   @StorageLink('ignoreWhitespace') ignoreWhitespace: boolean = false;
   @State navIdx: number = 0;
-  @State sbsPairs: SbsPair[] = [];
-  @State displayItems: DisplayItem[] = [];
+  @State sbsSource: SbsDataSource = new SbsDataSource();
+  @State dispSource: DisplayDataSource = new DisplayDataSource();
   @State collapsedGaps: Set<number> = new Set();
   @State editBuffer: string = '';
   @State session: DiffSessionViewModel = new DiffSessionViewModel();
@@ -55,7 +111,6 @@ struct DiffEditorPage {
   @State textB: string = '';
   @State theme: ThemeColorMap = getLightColors();
   @State btnTheme: ButtonColorMap = getLightButtonColors();
-  @State sbsVersion: number = 0;  // 每次同步刷新强制 ForEach 检测变化
   private unifiedScroller: Scroller = new Scroller();
   private isMonokai: boolean = false;
 
@@ -157,7 +212,7 @@ struct DiffEditorPage {
         this.diffStatsBar()
       }
 
-      // === Diff 内容区（全高，无输入面板） ===
+      // === Diff 内容区（LazyForEach 虚拟列表） ===
       if (this.session.diffResult) {
         Row() {
           Scroll(this.unifiedScroller) { this.diffContentArea() }
@@ -206,28 +261,22 @@ struct DiffEditorPage {
               this.session.runTextDiff();
               this.syncStateFromSession();
             }
-            if (ctrl && keyCode === 2109) {
-              this.toggleSearch();
-            }
-            if (ctrl && keyCode === 2127) {
-              this.session.switchView(ViewMode.UNIFIED);
-            }
-            if (ctrl && keyCode === 2098) {
-              this.session.switchView(ViewMode.SIDE_BY_SIDE);
-            }
+            if (ctrl && keyCode === 2109) this.toggleSearch();
+            if (ctrl && keyCode === 2127) this.session.switchView(ViewMode.UNIFIED);
+            if (ctrl && keyCode === 2098) this.session.switchView(ViewMode.SIDE_BY_SIDE);
         }
       }
       return true;
     })
   }
 
-  // ==================== 内容区 ====================
+  // ==================== 内容区（LazyForEach） ====================
 
   @Builder
   diffContentArea() {
     if (this.session.viewMode === ViewMode.UNIFIED) {
       Column() {
-        ForEach(this.displayItems, (item: DisplayItem, idx: number) => {
+        LazyForEach(this.dispSource, (item: DisplayItem, idx: number) => {
           if (item.kind === 1) {
             this.gapRow(item.lineIdx, item.gapCount)
           } else {
@@ -248,27 +297,23 @@ struct DiffEditorPage {
               onEditCancel: () => { this.session.cancelEdit(); }
             })
           }
-          }, (item: DisplayItem, idx: number) => `ud_v${this.sbsVersion}_${idx}_${item.kind}_${item.lineIdx}`)
+        }, (item: DisplayItem, idx: number) => `ud_${idx}_${item.kind}_${item.lineIdx}`)
       }.alignItems(HorizontalAlign.Start)
     } else {
       Column() {
-        ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+        LazyForEach(this.sbsSource, (p: SbsPair, i: number) => {
           SideBySideRenderer({
-            leftType: p.leftType,
-            leftContent: p.leftContent,
-            leftLineNo: p.leftLineNo,
-            rightType: p.rightType,
-            rightContent: p.rightContent,
-            rightLineNo: p.rightLineNo,
-            isMonokai: this.isMonokai,
-            isDark: this.colorMode === 'dark',
+            leftType: p.leftType, leftContent: p.leftContent, leftLineNo: p.leftLineNo,
+            rightType: p.rightType, rightContent: p.rightContent, rightLineNo: p.rightLineNo,
+            isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
             isSearchMatch: this.session.isLineSearchMatch(i),
             isHighlighted: this.session.isLineInHighlightedBlock(i),
             isLeftEditing: this.session.isSideEditing(i, 'left'),
             isRightEditing: this.session.isSideEditing(i, 'right'),
+            isLeftBlockStart: p.isLeftBlockStart, isRightBlockStart: p.isRightBlockStart,
             sideEditBuffer: $editBuffer,
-            onSyncToRight: () => { this.session.syncToRight(i); this.syncBothAfterEdit(); },
-            onSyncToLeft: () => { this.session.syncToLeft(i); this.syncBothAfterEdit(); },
+            onSyncToRight: () => { this.session.syncBlockToRight(i); this.syncBothAfterEdit(); },
+            onSyncToLeft: () => { this.session.syncBlockToLeft(i); this.syncBothAfterEdit(); },
             onLeftClick: () => {
               if (!this.session.isSideEditing(i, 'left') && p.leftContent.length > 0) {
                 this.editBuffer = p.leftContent;
@@ -286,7 +331,7 @@ struct DiffEditorPage {
             onLeftEditCancel: () => { this.session.cancelSideEdit(); },
             onRightEditCancel: () => { this.session.cancelSideEdit(); }
           })
-        }, (p: SbsPair, i: number) => `sbs_v${this.sbsVersion}_${i}_${p.leftLineNo}_${p.leftType}_${p.rightLineNo}_${p.rightType}`)
+        }, (p: SbsPair, i: number) => `sbs_${p.leftLineNo}_${p.leftType}_${p.rightLineNo}_${p.rightType}`)
       }.alignItems(HorizontalAlign.Start)
     }
   }
@@ -300,11 +345,8 @@ struct DiffEditorPage {
     .width('100%').height(22).justifyContent(FlexAlign.Center)
     .backgroundColor(this.theme.diffUnchangedBackground)
     .onClick(() => {
-      if (this.collapsedGaps.has(startIdx)) {
-        this.collapsedGaps.delete(startIdx);
-      } else {
-        this.collapsedGaps.add(startIdx);
-      }
+      if (this.collapsedGaps.has(startIdx)) this.collapsedGaps.delete(startIdx);
+      else this.collapsedGaps.add(startIdx);
       this.buildDisplayItems();
     })
   }
@@ -325,7 +367,7 @@ struct DiffEditorPage {
   emptyState() {
     Column() {
       Text('AegisDiff').fontSize(22).fontColor(this.theme.textPrimary)
-      Text('粘贴示例代码或使用 Ctrl+O 打开文件').fontSize(13).fontColor(this.theme.textSecondary).margin({ top: 8 })
+      Text('粘贴示例代码或使用 📄 打开文件').fontSize(13).fontColor(this.theme.textSecondary).margin({ top: 8 })
     }.width('100%').height('100%').justifyContent(FlexAlign.Center)
   }
 
@@ -338,17 +380,14 @@ struct DiffEditorPage {
     this.syncStateFromSession();
     if (this.session.lastError) {
       AlertDialog.show({
-        title: 'Diff 执行失败',
-        message: this.session.lastError,
-        autoCancel: true,
-        confirm: { value: '确定', action: () => {} }
+        title: 'Diff 执行失败', message: this.session.lastError,
+        autoCancel: true, confirm: { value: '确定', action: () => {} }
       });
     }
   }
 
   /**
-   * 【修复】将 sbsPairs 一次性构建并赋值为新数组引用，
-   * 确保 ArkTS @State 能检测到变化并触发 ForEach 重新渲染。
+   * 同步 diff 结果到两个 LazyForEach 数据源，块首标记在构建时一并计算
    */
   private syncStateFromSession(): void {
     if (!this.session || !this.session.diffResult) return;
@@ -360,27 +399,25 @@ struct DiffEditorPage {
     for (let i = 0; i < len; i++) {
       const left = leftLines[i];
       const right = rightLines[i];
+      const leftType = left ? left.type : 0;
+      const rightType = right ? right.type : 0;
+
       newPairs.push({
-        leftType: left ? left.type : 0,
-        leftContent: left ? left.content : '',
-        leftLineNo: left ? left.lineNumberA : -1,
-        rightType: right ? right.type : 0,
-        rightContent: right ? right.content : '',
-        rightLineNo: right ? right.lineNumberB : -1
+        leftType, leftContent: left ? left.content : '', leftLineNo: left ? left.lineNumberA : -1,
+        rightType, rightContent: right ? right.content : '', rightLineNo: right ? right.lineNumberB : -1,
+        isLeftBlockStart: (leftType === 2 || leftType === 3) &&
+          (i === 0 || (leftLines[i - 1] ? leftLines[i - 1].type !== leftType : true)),
+        isRightBlockStart: (rightType === 1 || rightType === 3) &&
+          (i === 0 || (rightLines[i - 1] ? rightLines[i - 1].type !== rightType : true))
       });
     }
-    this.sbsPairs = newPairs;
-    this.sbsVersion++;  // 强制 ForEach key 失效，确保 @Prop 重新传递
 
+    this.sbsSource.setItems(newPairs);
     this.collapsedGaps = new Set();
     this.buildDisplayItems();
     this.navIdx = this.session.highlightBlockIndex >= 0 ? this.session.highlightBlockIndex : 0;
   }
 
-  /**
-   * 行内编辑/同步后刷新 SBS + Unified 双视图状态，
-   * 同时也把编辑后的 textA/textB 同步回页面 @State
-   */
   private syncBothAfterEdit(): void {
     this.textA = this.session.textA;
     this.textB = this.session.textB;
@@ -390,10 +427,7 @@ struct DiffEditorPage {
   private buildDisplayItems(): void {
     const GAP_MIN = 8;
     const result: DisplayItem[] = [];
-    if (!this.session.diffResult) {
-      this.displayItems = result;
-      return;
-    }
+    if (!this.session.diffResult) { this.dispSource.setItems(result); return; }
 
     const lines = this.session.diffResult.unifiedLines;
     let i = 0;
@@ -403,26 +437,23 @@ struct DiffEditorPage {
         while (i < lines.length && lines[i].type === 0) i++;
         let runLen = i - runStart;
         if (runLen > GAP_MIN && !this.collapsedGaps.has(runStart)) {
-          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++) {
+          for (let j = 0; j < 3 && runStart + j < runStart + runLen; j++)
             result.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
-          }
           result.push({ kind: 1, lineIdx: runStart + 3, gapCount: runLen - 6 });
           for (let j = runLen - 3; j < runLen; j++) {
-            if (runStart + j >= runStart + 3) {
+            if (runStart + j >= runStart + 3)
               result.push({ kind: 0, lineIdx: runStart + j, gapCount: 0 });
-            }
           }
         } else {
-          for (let j = runStart; j < i; j++) {
+          for (let j = runStart; j < i; j++)
             result.push({ kind: 0, lineIdx: j, gapCount: 0 });
-          }
         }
       } else {
         result.push({ kind: 0, lineIdx: i, gapCount: 0 });
         i++;
       }
     }
-    this.displayItems = result;
+    this.dispSource.setItems(result);
   }
 
   private scrollToBlock(blockIdx: number): void {
@@ -435,11 +466,7 @@ struct DiffEditorPage {
   // ==================== 操作 ====================
 
   private toggleSearch(): void {
-    if (this.session.searchVisible) {
-      this.session.hideSearch();
-    } else {
-      this.session.showSearch();
-    }
+    this.session.searchVisible ? this.session.hideSearch() : this.session.showSearch();
   }
 
   private pasteSample(): void {
@@ -477,16 +504,11 @@ struct DiffEditorPage {
             this.session.textA = result.content;
             this.textA = result.content;
             this.session.fileNameA = result.fileName;
-            if (result.error) {
-              AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-            }
+            if (result.error) AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
             if (this.session.textA.length > 0 && this.session.textB.length > 0) {
-              this.syncSessionOptions();
-              this.runDiffAndSync();
+              this.syncSessionOptions(); this.runDiffAndSync();
             }
-          } catch (e2) {
-            AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true });
-          }
+          } catch (e2) { AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true }); }
         }
       }).catch(() => {});
     } catch (e) {}
@@ -504,16 +526,11 @@ struct DiffEditorPage {
             this.session.textB = result.content;
             this.textB = result.content;
             this.session.fileNameB = result.fileName;
-            if (result.error) {
-              AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
-            }
+            if (result.error) AlertDialog.show({ title: '提示', message: result.error, autoCancel: true });
             if (this.session.textA.length > 0 && this.session.textB.length > 0) {
-              this.syncSessionOptions();
-              this.runDiffAndSync();
+              this.syncSessionOptions(); this.runDiffAndSync();
             }
-          } catch (e2) {
-            AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true });
-          }
+          } catch (e2) { AlertDialog.show({ title: '读取失败', message: '无法读取文件', autoCancel: true }); }
         }
       }).catch(() => {});
     } catch (e) {}
@@ -521,10 +538,7 @@ struct DiffEditorPage {
 
   private saveDiffToFile(): void {
     const diffText = this.session.generateUnifiedDiff();
-    if (!diffText) {
-      AlertDialog.show({ title: '无差异', message: '请先执行对比', autoCancel: true });
-      return;
-    }
+    if (!diffText) { AlertDialog.show({ title: '无差异', message: '请先执行对比', autoCancel: true }); return; }
     try {
       let context = getContext(this);
       let filePicker = new picker.DocumentViewPicker(context);
@@ -534,16 +548,11 @@ struct DiffEditorPage {
         if (uris.length > 0) {
           try {
             let file = fs.openSync(uris[0], fs.OpenMode.WRITE_ONLY | fs.OpenMode.CREATE);
-            fs.writeSync(file.fd, diffText);
-            fs.closeSync(file);
+            fs.writeSync(file.fd, diffText); fs.closeSync(file);
             AlertDialog.show({ title: '保存成功', message: '差异已保存到文件', autoCancel: true });
-          } catch (err) {
-            AlertDialog.show({ title: '保存失败', message: '无法写入文件', autoCancel: true });
-          }
+          } catch (err) { AlertDialog.show({ title: '保存失败', message: '无法写入文件', autoCancel: true }); }
         }
       });
-    } catch (e) {
-      AlertDialog.show({ title: '保存失败', message: '导出文件时出错', autoCancel: true });
-    }
+    } catch (e) { AlertDialog.show({ title: '保存失败', message: '导出文件时出错', autoCancel: true }); }
   }
 }

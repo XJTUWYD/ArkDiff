@@ -406,6 +406,96 @@ export class DiffSessionViewModel {
     }
   }
 
+  /**
+   * 块同步到右侧：将连续同类型左列行（DELETED/MODIFIED）整块复制到 B 侧
+   * 从 sbsStartIdx 开始，找到连续的相同类型行，一次性同步
+   */
+  syncBlockToRight(sbsStartIdx: number): void {
+    if (!this.diffResult) return;
+    const leftLines = this.diffResult.leftLines;
+    if (sbsStartIdx < 0 || sbsStartIdx >= leftLines.length) return;
+
+    const startType = leftLines[sbsStartIdx].type;
+    if (startType !== 2 && startType !== 3) return;
+
+    let count = 1;
+    while (sbsStartIdx + count < leftLines.length &&
+           leftLines[sbsStartIdx + count].type === startType) {
+      count++;
+    }
+
+    this.pushSnapshot(`块同步(${count}行)→右侧`);
+
+    let linesB = this.textB.split('\n');
+
+    // 从块底向块顶处理，避免插入时索引偏移
+    for (let offset = count - 1; offset >= 0; offset--) {
+      const idx = sbsStartIdx + offset;
+      const leftLine = leftLines[idx];
+
+      if (leftLine.lineNumberB <= 0) {
+        const insIdx = this._findNearestBInsertPos(leftLines, idx);
+        if (insIdx >= 0 && insIdx <= linesB.length) {
+          linesB.splice(insIdx, 0, leftLine.content);
+        } else {
+          linesB.push(leftLine.content);
+        }
+      } else {
+        const targetIdx = leftLine.lineNumberB - 1;
+        if (targetIdx >= 0 && targetIdx < linesB.length) {
+          linesB[targetIdx] = leftLine.content;
+        }
+      }
+    }
+
+    this.textB = linesB.join('\n');
+    this.runTextDiff();
+  }
+
+  /**
+   * 块同步到左侧：将连续同类型右列行（ADDED/MODIFIED）整块复制到 A 侧
+   */
+  syncBlockToLeft(sbsStartIdx: number): void {
+    if (!this.diffResult) return;
+    const rightLines = this.diffResult.rightLines;
+    if (sbsStartIdx < 0 || sbsStartIdx >= rightLines.length) return;
+
+    const startType = rightLines[sbsStartIdx].type;
+    if (startType !== 1 && startType !== 3) return;
+
+    let count = 1;
+    while (sbsStartIdx + count < rightLines.length &&
+           rightLines[sbsStartIdx + count].type === startType) {
+      count++;
+    }
+
+    this.pushSnapshot(`块同步(${count}行)←左侧`);
+
+    let linesA = this.textA.split('\n');
+
+    for (let offset = count - 1; offset >= 0; offset--) {
+      const idx = sbsStartIdx + offset;
+      const rightLine = rightLines[idx];
+
+      if (rightLine.lineNumberA <= 0) {
+        const insIdx = this._findNearestAInsertPos(rightLines, idx);
+        if (insIdx >= 0 && insIdx <= linesA.length) {
+          linesA.splice(insIdx, 0, rightLine.content);
+        } else {
+          linesA.push(rightLine.content);
+        }
+      } else {
+        const targetIdx = rightLine.lineNumberA - 1;
+        if (targetIdx >= 0 && targetIdx < linesA.length) {
+          linesA[targetIdx] = rightLine.content;
+        }
+      }
+    }
+
+    this.textA = linesA.join('\n');
+    this.runTextDiff();
+  }
+
   /** 在 leftLines 中向后/向前查找第一个有效 lineNumberB，用于确定 B 侧插入位置 */
   private _findNearestBInsertPos(leftLines: DiffLine[], fromIndex: number): number {
     for (let i = fromIndex + 1; i < leftLines.length; i++) {

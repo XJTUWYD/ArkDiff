@@ -1,0 +1,4 @@
+{
+  "name": "libmyers_diff_napi.so",
+  "types": "./index.d.ts"
+}

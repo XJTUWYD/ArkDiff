@@ -20,6 +20,8 @@ export struct SideBySideRenderer {
   @Prop isHighlighted: boolean = false;
   @Prop isLeftEditing: boolean = false;
   @Prop isRightEditing: boolean = false;
+  @Prop isLeftBlockStart: boolean = false;
+  @Prop isRightBlockStart: boolean = false;
   @Link sideEditBuffer: string;
   onSyncToRight?: () => void;
   onSyncToLeft?: () => void;
@@ -76,14 +78,14 @@ export struct SideBySideRenderer {
             if (this.isRightEditing && this.onRightEditCancel) this.onRightEditCancel();
           })
         } else if (this.leftType !== 0 || this.rightType !== 0) {
-          if (this.leftType === 2 || this.leftType === 3) {
+          if ((this.leftType === 2 || this.leftType === 3) && this.isLeftBlockStart) {
             Button({ type: ButtonType.Circle }) {
               Text('→').fontSize(10).fontColor(this.getTheme().diffAddedForeground)
             }
             .width(22).height(20).backgroundColor(Color.Transparent)
             .onClick(() => { if (this.onSyncToRight) this.onSyncToRight(); })
           }
-          if (this.rightType === 1 || this.rightType === 3) {
+          if ((this.rightType === 1 || this.rightType === 3) && this.isRightBlockStart) {
             Button({ type: ButtonType.Circle }) {
               Text('←').fontSize(10).fontColor(this.getTheme().diffDeletedForeground)
             }

@@ -5,6 +5,8 @@
   "main": "",
   "author": "",
   "license": "",
-  "dependencies": {}
+  "dependencies": {
+    "libmyers_diff_napi.so": "file:./src/main/cpp/types/libmyers_diff_napi"
+  }
 }
 
