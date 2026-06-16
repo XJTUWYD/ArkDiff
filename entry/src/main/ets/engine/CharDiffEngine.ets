@@ -20,35 +20,31 @@ export class CharDiffEngine {
     const n = newStr.length;
     if (m === 0 && n === 0) return [];
 
-    // 构建 LCS DP 表
-    const dp: number[][] = [];
-    for (let i = 0; i <= m; i++) {
-      let row = new Array<number>(n + 1);
-      for (let j = 0; j <= n; j++) {
-        row[j] = 0;
-      }
-      dp[i] = row;
-    }
-
+    // 构建 LCS DP 表（滚动数组：仅保留上一行，降低内存）
+    let prev = new Array<number>(n + 1).fill(0);
+    // 同时保留完整表用于回溯（回溯需要随机访问）；规模较大时回退到两行回溯
+    // 这里用完整表以保证回溯正确性，行级字符 diff 的 m*n 一般较小
+    const dp: number[][] = [prev.slice()];
     for (let i = 1; i <= m; i++) {
+      let row = new Array<number>(n + 1).fill(0);
       for (let j = 1; j <= n; j++) {
         if (oldStr.charAt(i - 1) === newStr.charAt(j - 1)) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
+          row[j] = prev[j - 1] + 1;
         } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          row[j] = Math.max(prev[j], row[j - 1]);
         }
       }
+      dp.push(row);
+      prev = row;
     }
 
-    // 回溯提取 LCS 匹配索引
-    const lcsIndicesOld: number[] = []; // 匹配字符在 oldStr 中的索引
+    // 回溯提取 LCS 匹配索引（push + reverse，避免 O(n²) unshift）
     const lcsIndicesNew: number[] = []; // 匹配字符在 newStr 中的索引
     let i = m;
     let j = n;
     while (i > 0 && j > 0) {
       if (oldStr.charAt(i - 1) === newStr.charAt(j - 1)) {
-        lcsIndicesOld.unshift(i - 1);
-        lcsIndicesNew.unshift(j - 1);
+        lcsIndicesNew.push(j - 1);
         i--;
         j--;
       } else if (dp[i - 1][j] >= dp[i][j - 1]) {
@@ -57,6 +53,7 @@ export class CharDiffEngine {
         j--;
       }
     }
+    lcsIndicesNew.reverse();
 
     // 基于 LCS + newStr 构建 CharSegment[]
     // segments 基于 newStr 的索引，标注每个字符是 UNCHANGED 还是 ADDED

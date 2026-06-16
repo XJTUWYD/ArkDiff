@@ -6,7 +6,7 @@
  * 参考论文: "An O(ND) Difference Algorithm and Its Variations"
  */
 import { LcsMatchedPair, LcsResult } from '../model/DiffModels';
-import nativeMyers from 'libmyers_diff_napi.so';
+import nativeMyers, { NativeDiffResult } from 'libmyers_diff_napi.so';
 
 /** 是否成功加载原生模块 */
 let nativeAvailable: boolean = false;
@@ -56,14 +56,20 @@ export class MyersEngine {
   ): LcsResult {
     try {
       const t0 = Date.now();
-      const result = nativeMyers.computeDiff(linesA, linesB);
-      console.info(`[MyersEngine] C++ Native 计算完成: ${m}x${n} 行, 耗时 ${Date.now() - t0}ms`);
+      const result: NativeDiffResult = nativeMyers.computeDiff(linesA, linesB) as NativeDiffResult;
+      // 校验原生返回结构，避免桥接层异常导致后续 undefined 访问
+      if (!result || !Array.isArray(result.matches)) {
+        return MyersEngine.computeArkTS(linesA, linesB, m, n);
+      }
       const matches: LcsMatchedPair[] = [];
-      for (let i = 0; i < result.matches.length; i++) {
-        matches.push({
-          indexA: result.matches[i].indexA,
-          indexB: result.matches[i].indexB
-        });
+      const arr = result.matches;
+      for (let i = 0; i < arr.length; i++) {
+        matches.push({ indexA: arr[i].indexA, indexB: arr[i].indexB });
+      }
+      // 仅在大规模或慢计算时记录，避免目录批量对比刷屏日志
+      const elapsed = Date.now() - t0;
+      if (elapsed > 50 || m * n > 100000) {
+        console.info(`[MyersEngine] C++ Native: ${m}x${n} 行, 耗时 ${elapsed}ms`);
       }
       return { matches, lengthA: m, lengthB: n };
     } catch (_e) {
@@ -157,12 +163,9 @@ export class MyersEngine {
       y = prevY;
     }
 
-    // 用 push + reverse 替代 O(n²) 的 unshift
-    let reversed: string[] = [];
-    for (let i = edits.length - 1; i >= 0; i--) {
-      reversed.push(edits[i]);
-    }
-    return reversed;
+    // 用 in-place reverse 替代额外数组分配
+    edits.reverse();
+    return edits;
   }
 
   private static editsToMatches(edits: string[]): LcsMatchedPair[] {

@@ -13,6 +13,7 @@ export class ThemeColors {
   private static instance: ThemeColors | null = null;
   private _darkMode: boolean = false;
   private _isMonokai: boolean = false;
+  private _cached: ThemeColorMap | null = null;
 
   static getInstance(): ThemeColors {
     if (!ThemeColors.instance) {
@@ -25,12 +26,14 @@ export class ThemeColors {
   setDarkMode(isDark: boolean): void {
     this._darkMode = isDark;
     this._isMonokai = false;
+    this._cached = null;
   }
 
   /** 设置 Monokai 主题 */
   setMonokai(enable: boolean): void {
     this._isMonokai = enable;
     this._darkMode = false;
+    this._cached = null;
   }
 
   /** 当前是否为深色模式 */
@@ -43,10 +46,12 @@ export class ThemeColors {
     return this._isMonokai;
   }
 
-  /** 获取当前主题颜色 Tokens */
+  /** 获取当前主题颜色 Tokens（缓存，避免每次 getter 访问都重新分配对象） */
   get colors(): ThemeColorMap {
-    if (this._isMonokai) return getMonokaiColors();
-    return this._darkMode ? getDarkColors() : getLightColors();
+    if (this._cached !== null) return this._cached;
+    this._cached = this._isMonokai ? getMonokaiColors()
+      : this._darkMode ? getDarkColors() : getLightColors();
+    return this._cached;
   }
 
   // ========== 便捷属性（直接代理到当前主题） ==========

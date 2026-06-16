@@ -16,21 +16,29 @@ export struct DiffNavigator {
 
   build() {
     Row() {
-      Button('\u229E A').fontSize(10).height(24).type(ButtonType.Capsule)
-        .backgroundColor(this.getTheme().diffAddedBackground)
-        .fontColor(this.getTheme().diffAddedForeground)
-        .borderRadius(8).padding({ left: 8, right: 8 })
-        .onClick(() => { if (this.onPickFileA) this.onPickFileA(); })
-      Button('\u229F B').fontSize(10).height(24).type(ButtonType.Capsule)
-        .backgroundColor(this.getTheme().diffDeletedBackground)
-        .fontColor(this.getTheme().diffDeletedForeground)
-        .borderRadius(8).padding({ left: 8, right: 8 }).margin({ left: 4 })
-        .onClick(() => { if (this.onPickFileB) this.onPickFileB(); })
+      Row() {
+        SymbolGlyph($r('sys.symbol.folder_badge_plus')).fontSize(12).fontColor([this.getTheme().diffAddedForeground])
+          .margin({ right: 2 })
+        Text('A').fontSize(10)
+      }
+      .height(24)
+      .backgroundColor(this.getTheme().diffAddedBackground)
+      .borderRadius(8).padding({ left: 8, right: 8 })
+      .onClick(() => { if (this.onPickFileA) this.onPickFileA(); })
+      Row() {
+        SymbolGlyph($r('sys.symbol.folder_badge_plus')).fontSize(12).fontColor([this.getTheme().diffDeletedForeground])
+          .margin({ right: 2 })
+        Text('B').fontSize(10)
+      }
+      .height(24)
+      .backgroundColor(this.getTheme().diffDeletedBackground)
+      .borderRadius(8).padding({ left: 8, right: 8 }).margin({ left: 4 })
+      .onClick(() => { if (this.onPickFileB) this.onPickFileB(); })
 
       Row() {
         Button({ type: ButtonType.Circle }) {
-          Text('\u25B2').fontSize(14)
-            .fontColor(this.currentIndex > 0 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
+          SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(14)
+            .fontColor([this.currentIndex > 0 ? this.getTheme().textPrimary : this.getTheme().textSecondary])
         }
         .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex > 0)
@@ -41,8 +49,8 @@ export struct DiffNavigator {
           .width(64).textAlign(TextAlign.Center)
 
         Button({ type: ButtonType.Circle }) {
-          Text('\u25BC').fontSize(14)
-            .fontColor(this.currentIndex < this.totalBlocks - 1 ? this.getTheme().textPrimary : this.getTheme().textSecondary)
+          SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(14)
+            .fontColor([this.currentIndex < this.totalBlocks - 1 ? this.getTheme().textPrimary : this.getTheme().textSecondary])
         }
         .width(28).height(28).backgroundColor(Color.Transparent)
         .enabled(this.currentIndex < this.totalBlocks - 1)

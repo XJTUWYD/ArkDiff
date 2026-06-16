@@ -23,8 +23,11 @@ export class BreakpointUtil {
     this.uiContext = uiContext;
   }
 
-  /** 注册断点监听 */
+  /** 注册断点监听（幂等：重复调用会先解除旧监听，避免泄漏） */
   register(): void {
+    if (this.smListener !== null || this.mdListener !== null || this.lgListener !== null) {
+      this.unregister();
+    }
     this.smListener = this.uiContext.getMediaQuery()
       .matchMediaSync('(320vp<=width<600vp)');
     this.mdListener = this.uiContext.getMediaQuery()
@@ -48,6 +51,9 @@ export class BreakpointUtil {
     this.smListener?.off('change');
     this.mdListener?.off('change');
     this.lgListener?.off('change');
+    this.smListener = null;
+    this.mdListener = null;
+    this.lgListener = null;
   }
 
   /** 同步当前断点 */

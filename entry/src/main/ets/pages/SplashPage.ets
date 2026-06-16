@@ -11,7 +11,7 @@ struct SplashPage {
     Column() {
       // Logo 区域
       Column() {
-        Text('AegisDiff')
+        Text('ArkDiff')
           .fontSize(32)
           .fontWeight(FontWeight.Bold)
           .fontColor('#1C1C1C')
@@ -45,7 +45,7 @@ struct SplashPage {
         .margin({ bottom: 32 })
 
       // 底部信息
-      Text('v1.0.0 · AegisDiff')
+      Text('v1.0.0 · ArkDiff')
         .fontSize(12)
         .fontColor('#BBBBBB')
         .margin({ bottom: 16 })

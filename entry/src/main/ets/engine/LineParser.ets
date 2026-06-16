@@ -14,8 +14,8 @@ export class LineParser {
       return [''];
     }
 
-    // 统一换行符：先将 \r\n 替换为 \n
-    const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // 统一换行符：单次扫描同时处理 \r\n 和裸 \r
+    const normalized = text.replace(/\r\n|\r/g, '\n');
 
     // 按 \n 拆分
     const lines = normalized.split('\n');

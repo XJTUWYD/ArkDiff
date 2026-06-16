@@ -51,7 +51,7 @@ export class LcsEngine {
       }
     }
 
-    // 回溯提取 LCS 匹配对
+    // 回溯提取 LCS 匹配对（push + reverse，避免每步 O(n) 的 unshift）
     const matches: LcsMatchedPair[] = [];
     let i = m;
     let j = n;
@@ -59,7 +59,7 @@ export class LcsEngine {
     while (i > 0 && j > 0) {
       if (linesA[i - 1] === linesB[j - 1]) {
         // 行内容相同 → 匹配
-        matches.unshift({ indexA: i - 1, indexB: j - 1 });
+        matches.push({ indexA: i - 1, indexB: j - 1 });
         i--;
         j--;
       } else if (dp[i - 1][j] >= dp[i][j - 1]) {
@@ -68,6 +68,7 @@ export class LcsEngine {
         j--;
       }
     }
+    matches.reverse();
 
     return {
       matches,

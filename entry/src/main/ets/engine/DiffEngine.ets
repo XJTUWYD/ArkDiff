@@ -12,6 +12,7 @@ import {
   DiffOptions,
   DiffResult,
   DiffType,
+  CharSegment,
   LcsMatchedPair,
   LcsResult
 } from '../model/DiffModels';
@@ -38,17 +39,21 @@ export class DiffEngine {
   static computeDiff(textA: string, textB: string, options: DiffOptions): DiffResult {
     const startTime = Date.now();
 
+    // 输入校验：避免 null/undefined 深入解析层崩溃
+    const safeA = textA == null ? '' : textA;
+    const safeB = textB == null ? '' : textB;
+
     // Step 1: 解析行（带缓存）
     let linesA: string[];
     let linesB: string[];
-    if (textA === DiffEngine.lastTextA && textB === DiffEngine.lastTextB) {
+    if (safeA === DiffEngine.lastTextA && safeB === DiffEngine.lastTextB) {
       linesA = DiffEngine.cachedLinesA;
       linesB = DiffEngine.cachedLinesB;
     } else {
-      linesA = LineParser.parseLines(textA);
-      linesB = LineParser.parseLines(textB);
-      DiffEngine.lastTextA = textA;
-      DiffEngine.lastTextB = textB;
+      linesA = LineParser.parseLines(safeA);
+      linesB = LineParser.parseLines(safeB);
+      DiffEngine.lastTextA = safeA;
+      DiffEngine.lastTextB = safeB;
       DiffEngine.cachedLinesA = linesA;
       DiffEngine.cachedLinesB = linesB;
     }
@@ -95,10 +100,12 @@ export class DiffEngine {
     };
   }
 
-  /** 失效缓存（文本被外部修改时调用） */
+  /** 失效缓存（文本被外部修改时调用；同时清空缓存的行数组，避免命中陈旧数据） */
   static invalidateCache(): void {
     DiffEngine.lastTextA = '';
     DiffEngine.lastTextB = '';
+    DiffEngine.cachedLinesA = [];
+    DiffEngine.cachedLinesB = [];
   }
 
   // ========== 算法选择 ==========
@@ -149,7 +156,7 @@ export class DiffEngine {
     return result;
   }
 
-  // ========== 合并 DELETE+ADD → MODIFIED（单次遍历） ==========
+  // ========== 合并 DELETE+ADD → MODIFIED（O(n) 单次遍历，避免内层 for+splice 的 O(k²)） ==========
 
   private static mergeAdjacent(lines: DiffLine[], options: DiffOptions): DiffLine[] {
     const out: DiffLine[] = [];
@@ -161,44 +168,44 @@ export class DiffEngine {
         out.push(lines[i++]);
         continue;
       }
-      // 收集变化段
+      // 收集连续变化段
       const seg: DiffLine[] = [];
       while (i < len && lines[i].type !== DiffType.UNCHANGED) {
         seg.push(lines[i++]);
       }
-      // 配对 DELETE + ADD → MODIFIED
-      let j = 0;
-      while (j < seg.length) {
+      // 用待配对队列线性配对 DELETE↔ADD → MODIFIED，保持原顺序
+      const pendingDeletes: DiffLine[] = [];
+      const pendingAdds: DiffLine[] = [];
+      for (let j = 0; j < seg.length; j++) {
         const cur = seg[j];
-        if (cur.type === DiffType.MODIFIED || cur.type === DiffType.UNCHANGED) {
-          out.push(cur); j++;
-          continue;
-        }
-        // 找下一个异类型行配对
-        const wantType = cur.type === DiffType.DELETED ? DiffType.ADDED : DiffType.DELETED;
-        let pairIdx = -1;
-        for (let k = j + 1; k < seg.length; k++) {
-          if (seg[k].type === wantType) { pairIdx = k; break; }
-        }
-        if (pairIdx >= 0) {
-          // 配对为 MODIFIED
-          const delLine = cur.type === DiffType.DELETED ? cur : seg[pairIdx];
-          const addLine = cur.type === DiffType.ADDED ? cur : seg[pairIdx];
-          const segs = options.enableCharDiff
-            ? CharDiffEngine.diffChars(delLine.content, addLine.content) : [];
-          out.push(DiffEngine.make(
-            delLine.lineNumberA, addLine.lineNumberB,
-            addLine.content, delLine.content, DiffType.MODIFIED, segs
-          ));
-          // 标记 paired 行以免重复处理
-          if (pairIdx > j) {
-            seg.splice(pairIdx, 1); // 移除配对的 ADD
+        if (cur.type === DiffType.DELETED) {
+          if (pendingAdds.length > 0) {
+            const addLine = pendingAdds.shift()!;
+            const segs = options.enableCharDiff
+              ? CharDiffEngine.diffChars(cur.content, addLine.content) : [];
+            out.push(DiffEngine.make(cur.lineNumberA, addLine.lineNumberB,
+              addLine.content, cur.content, DiffType.MODIFIED, segs));
+          } else {
+            pendingDeletes.push(cur);
           }
-          j++;
+        } else if (cur.type === DiffType.ADDED) {
+          if (pendingDeletes.length > 0) {
+            const delLine = pendingDeletes.shift()!;
+            const segs = options.enableCharDiff
+              ? CharDiffEngine.diffChars(delLine.content, cur.content) : [];
+            out.push(DiffEngine.make(delLine.lineNumberA, cur.lineNumberB,
+              cur.content, delLine.content, DiffType.MODIFIED, segs));
+          } else {
+            pendingAdds.push(cur);
+          }
         } else {
-          out.push(cur); j++;
+          // MODIFIED 等直接输出
+          out.push(cur);
         }
       }
+      // 段内未配对的删除/新增行
+      for (let d = 0; d < pendingDeletes.length; d++) out.push(pendingDeletes[d]);
+      for (let a = 0; a < pendingAdds.length; a++) out.push(pendingAdds[a]);
     }
     return out;
   }
@@ -338,13 +345,14 @@ export class DiffEngine {
 
   private static make(
     la: number, lb: number, c: string, oc: string,
-    t: DiffType, s: import('../model/DiffModels').CharSegment[] = []
+    t: DiffType, s: CharSegment[] = []
   ): DiffLine {
     return { lineNumberA: la, lineNumberB: lb, content: c, oldContent: oc, type: t, charSegments: s };
   }
 
   private static clone(l: DiffLine): DiffLine {
-    return { lineNumberA: l.lineNumberA, lineNumberB: l.lineNumberB, content: l.content, oldContent: l.oldContent, type: l.type, charSegments: l.charSegments };
+    // 复制 charSegments，避免左右两侧共享同一引用被误改
+    return { lineNumberA: l.lineNumberA, lineNumberB: l.lineNumberB, content: l.content, oldContent: l.oldContent, type: l.type, charSegments: l.charSegments.slice() };
   }
 
   private static empty(): DiffLine {

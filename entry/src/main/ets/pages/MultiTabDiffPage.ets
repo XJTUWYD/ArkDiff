@@ -2,14 +2,15 @@
  * AegisDiff — MultiTabDiffPage（多 Tab + 最近文件）
  * 支持多标签工作区、标签页切换、最近文件列表
  */
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
-import pasteboard from '@ohos.pasteboard';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { DiffBlockLocator, DiffBlock } from '../engine/DiffBlockLocator';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffOverviewBar } from '../components/DiffOverviewBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
 import { FileContentService } from '../services/FileContentService';
+import { AnalyticsService } from '../services/AnalyticsService';
 import { ViewMode, DiffOptions, CharSegment } from '../model/DiffModels';
 import { DiffEngine } from '../engine/DiffEngine';
 import { TokenType, TokenHighlighter, Token } from '../engine/TokenHighlighter';
@@ -24,6 +25,19 @@ interface TabSession {
   viewMode: ViewMode;
   fileAName: string;
   fileBName: string;
+  /** 文件 A 的 URI（用于持久化与重启后重读，无则为空串） */
+  uriA: string;
+  /** 文件 B 的 URI */
+  uriB: string;
+}
+
+/** 持久化的 Tab 元数据（只存 URI+名称，不存全文，避免配额与隐私问题） */
+interface PersistedTab {
+  label: string;
+  fileAName: string;
+  fileBName: string;
+  uriA: string;
+  uriB: string;
 }
 
 interface RecentFile {
@@ -37,6 +51,17 @@ interface SbsPair {
   rightType: number; rightContent: string; rightLineNo: number;
 }
 interface DisplayItem { kind: number; lineIdx: number; gapCount: number; }
+
+// LazyForEach 数据源（避免大列表全量挂载）
+class SbsDataSource implements IDataSource {
+  private items: SbsPair[] = [];
+  private listeners: DataChangeListener[] = [];
+  setItems(items: SbsPair[]): void { this.items = items; this.listeners.forEach(l => l.onDataReloaded()); }
+  totalCount(): number { return this.items.length; }
+  getData(index: number): SbsPair { return this.items[index]; }
+  registerDataChangeListener(l: DataChangeListener): void { if (this.listeners.indexOf(l) < 0) this.listeners.push(l); }
+  unregisterDataChangeListener(l: DataChangeListener): void { const p = this.listeners.indexOf(l); if (p >= 0) this.listeners.splice(p, 1); }
+}
 
 // ===================== UI 组件 =====================
 
@@ -98,6 +123,8 @@ struct MultiTabDiffPage {
   @StorageLink('currentBreakpoint') currentBp: string = 'sm';
   @StorageLink('ignoreBlankLines') ignoreBlankLines: boolean = false;
   @StorageLink('multiTab_recentFiles') recentFilesRaw: string = '[]';
+  @StorageLink('multiTab_openTabs') openTabsRaw: string = '[]';
+  @StorageLink('onboardingShown') onboardingShown: boolean = false;
 
   // Tab 管理
   @State tabs: TabSession[] = [];
@@ -112,7 +139,7 @@ struct MultiTabDiffPage {
   @State similarity: number = 0; @State blockCnt: number = 0; @State hasResult: boolean = false;
   @State lineTypes: number[] = []; @State lineContents: string[] = [];
   @State lineNosA: number[] = []; @State lineNosB: number[] = [];
-  @State sbsPairs: SbsPair[] = [];
+  @State sbsSource: SbsDataSource = new SbsDataSource();
   @State charSegs: CharSegment[][] = [];
   @State searchActive: boolean = false; @State searchKeyword: string = '';
   @State searchMatches: number[] = []; @State searchIdx: number = 0;
@@ -127,10 +154,30 @@ struct MultiTabDiffPage {
   private diffBlocks: DiffBlock[] = [];
   private scroller: Scroller = new Scroller();
 
+  aboutToDisappear(): void {
+    // 释放各 Tab 的全量文本与列表缓冲
+    this.tabs = [];
+    this.sbsSource.setItems([]);
+    this.lineContents = [];
+    this.charSegs = [];
+  }
+
   aboutToAppear(): void {
     this.loadRecentFiles();
-    // 检查是否从目录对比跳转
-    let fromDirA = AppStorage.get<string>('dirDiffContentA');
+    const sharedText = AppStorage.get<string>('pendingSharedText');
+    const fromDirA = AppStorage.get<string>('dirDiffContentA');
+    // 首次使用引导（仅一次，且不打断分享/跳转流程）
+    if (!this.onboardingShown && !sharedText && !fromDirA) {
+      this.showOnboarding();
+    }
+    // 通过系统"分享文本"唤起：将分享内容填入新 Tab 的 A 侧
+    if (sharedText && sharedText.length > 0) {
+      AppStorage.delete('pendingSharedText');
+      this.addTab('分享内容', sharedText, '', '待对比', '分享内容', '', '');
+      this.toast('已接收分享内容，请选择 B 侧文件进行对比');
+      return;
+    }
+    // 检查是否从目录对比跳转（带内容直传，优先级最高）
     if (fromDirA) {
       let fromDirB = AppStorage.get<string>('dirDiffContentB') || '';
       this.addTab(
@@ -140,16 +187,37 @@ struct MultiTabDiffPage {
       );
       AppStorage.delete('dirDiffContentA'); AppStorage.delete('dirDiffContentB');
       AppStorage.delete('dirDiffNameA'); AppStorage.delete('dirDiffNameB');
-    } else {
-      this.addTab('示例', SampleDataProvider.getSampleA(), SampleDataProvider.getSampleB(), '示例B');
+      return;
     }
+    // 恢复上次打开的会话（含文件 URI 的 Tab 会被重新加载）
+    const before = this.tabs.length;
+    this.restoreTabs();
+    if (this.tabs.length > before) return;
+    // 无可恢复会话 → 加载示例，降低首次使用的空旷感
+    this.addTab('示例', SampleDataProvider.getSampleA(), SampleDataProvider.getSampleB(), '示例B');
+  }
+
+  /** 首次使用功能引导（仅展示一次） */
+  private showOnboarding(): void {
+    this.onboardingShown = true;
+    AlertDialog.show({
+      title: '欢迎使用 ArkDiff',
+      message: '几个快速上手提示：\n\n' +
+        '• 点击「对比」查看两侧差异（已为你加载示例）\n' +
+        '• 点击行号旁的文字可直接行内编辑\n' +
+        '• 顶部「A/B」按钮分别打开左右文件\n' +
+        '• 可同时开多个标签，最近文件随时调回\n' +
+        '• 从其他 App 分享文本可直接进入对比',
+      autoCancel: true,
+      confirm: { value: '开始体验', action: () => {} }
+    });
   }
 
   build() {
     Column() {
       // ===== Tab 栏 =====
       Row() {
-        Button({ type: ButtonType.Circle }) { Text('←').fontSize(18).fontColor('#333') }
+        Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(18).fontColor(['#333']) }
           .width(32).height(32).backgroundColor(Color.Transparent)
           .onClick(() => { router.back(); })
         Scroll() {
@@ -159,7 +227,7 @@ struct MultiTabDiffPage {
                 Text(tab.label).fontSize(12).maxLines(1).width(80).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .fontColor(idx === this.activeIdx ? '#007AFF' : '#666')
                 if (this.tabs.length > 1) {
-                  Text('×').fontSize(14).fontColor('#CCC').margin({ left: 4 }).padding({ left: 2, right: 2 })
+                  SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor(['#CCC']).margin({ left: 4 }).padding({ left: 2, right: 2 })
                     .onClick(() => { this.closeTab(idx); })
                 }
               }
@@ -172,10 +240,10 @@ struct MultiTabDiffPage {
         }.layoutWeight(1).scrollBar(BarState.Off).scrollable(ScrollDirection.Horizontal)
 
         // 最近文件按钮
-        Button({ type: ButtonType.Circle }) { Text('📁').fontSize(13) }
+        Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.folder')).fontSize(13).fontColor(['#666']) }
           .width(28).height(28).backgroundColor(this.showRecentFiles ? '#E3F2FD' : Color.Transparent)
           .onClick(() => { this.showRecentFiles = !this.showRecentFiles; })
-        Button({ type: ButtonType.Circle }) { Text('+').fontSize(16).fontColor('#007AFF') }
+        Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.plus')).fontSize(16).fontColor(['#007AFF']) }
           .width(28).height(28).backgroundColor(Color.Transparent)
           .onClick(() => { this.addTab('新对比', '', '', ''); })
       }
@@ -189,19 +257,28 @@ struct MultiTabDiffPage {
 
       // ===== 文件选择 + 统计 =====
       Row() {
-        Button('📂 A').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(10).padding({ left: 8, right: 8 })
-          .onClick(() => { this.pickFileA(); })
-        Button('📄 B').fontSize(11).height(28).type(ButtonType.Capsule)
-          .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-          .onClick(() => { this.pickFileB(); })
+        Row() {
+          SymbolGlyph($r('sys.symbol.folder')).fontSize(13).fontColor(['#1A7F37']).margin({ right: 2 })
+          Text('A').fontSize(11)
+        }
+        .height(28).backgroundColor('#E8F5E9').borderRadius(10).padding({ left: 8, right: 8 })
+        .onClick(() => { this.pickFileA(); })
+        Row() {
+          SymbolGlyph($r('sys.symbol.doc')).fontSize(13).fontColor(['#BE2E2E']).margin({ right: 2 })
+          Text('B').fontSize(11)
+        }
+        .height(28).backgroundColor('#FFEBEE').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+        .onClick(() => { this.pickFileB(); })
         Button('对比').fontSize(11).height(28).type(ButtonType.Capsule)
           .backgroundColor('#007AFF').fontColor(Color.White).borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
           .onClick(() => { this.doDiff(); })
         if (this.hasResult) {
-          Button('⇓').fontSize(11).height(28).type(ButtonType.Capsule)
-            .backgroundColor('#E3F2FD').fontColor('#1565C0').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
-            .onClick(() => { this.exportDiff(); })
+          Row() {
+            SymbolGlyph($r('sys.symbol.paperplane')).fontSize(13).fontColor(['#1565C0'])
+            Text('导出').fontSize(11)
+          }
+          .height(28).backgroundColor('#E3F2FD').borderRadius(10).padding({ left: 8, right: 8 }).margin({ left: 6 })
+          .onClick(() => { this.exportDiff(); })
         }
         if (this.hasResult) {
           Text(`+${this.added} -${this.deleted} ~${this.modified} ${this.similarity}%`)
@@ -216,7 +293,7 @@ struct MultiTabDiffPage {
       // ===== 搜索栏 =====
       if (this.searchActive && this.hasResult) {
         Row() {
-          Button({ type: ButtonType.Circle }) { Text('×').fontSize(14).fontColor('#666') }
+          Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor(['#666']) }
             .width(28).height(28).backgroundColor(Color.Transparent)
             .onClick(() => { this.searchActive = false; this.searchKeyword = ''; this.searchMatches = []; })
           TextInput({ text: this.searchKeyword, placeholder: '搜索...' })
@@ -233,9 +310,9 @@ struct MultiTabDiffPage {
         Row() {
           Scroll(this.scroller) {
               Column() {
-                ForEach(this.sbsPairs, (p: SbsPair, i: number) => {
+                LazyForEach(this.sbsSource, (p: SbsPair, i: number) => {
                   this.sbsRow(p, i)
-                }, (p: SbsPair, i: number) => `s_${i}`)
+                }, (p: SbsPair, i: number) => `sbs_${i}_${p.leftLineNo}_${p.rightLineNo}_${p.leftType}${p.rightType}`)
               }
           }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
           if (this.diffBlocks.length > 0) {
@@ -291,12 +368,19 @@ struct MultiTabDiffPage {
   }
 
   // ===================== Tab 操作 =====================
-  private addTab(label: string, textA: string, textB: string, fileBName: string): void {
+  private addTab(
+    label: string, textA: string, textB: string, fileBName: string,
+    fileAName: string = '', uriA: string = '', uriB: string = ''
+  ): void {
     const tabId = this.idCounter++;
-    this.tabs.push({ id: tabId, label, textA, textB, viewMode: this.viewMode, fileAName: label, fileBName });
+    this.tabs.push({
+      id: tabId, label, textA, textB, viewMode: this.viewMode,
+      fileAName: fileAName || label, fileBName, uriA, uriB
+    });
     if (this.tabs.length === 1) this.activeIdx = 0;
     else this.activeIdx = this.tabs.length - 1;
     this.restoreTab();
+    this.persistTabs();
   }
 
   private closeTab(idx: number): void {
@@ -305,10 +389,10 @@ struct MultiTabDiffPage {
     if (this.activeIdx >= this.tabs.length) this.activeIdx = this.tabs.length - 1;
     if (this.activeIdx < 0) this.activeIdx = 0;
     this.restoreTab();
+    this.persistTabs();
   }
 
   private switchTab(idx: number): void {
-    // 保存当前 Tab
     if (this.activeIdx >= 0 && this.activeIdx < this.tabs.length) {
       this.tabs[this.activeIdx].textA = this.tabs[this.activeIdx]?.textA || '';
       this.tabs[this.activeIdx].textB = this.tabs[this.activeIdx]?.textB || '';
@@ -323,7 +407,7 @@ struct MultiTabDiffPage {
     this.viewMode = tab.viewMode;
     this.hasResult = false;
     this.lineTypes = []; this.lineContents = []; this.lineNosA = []; this.lineNosB = [];
-    this.sbsPairs = []; this.charSegs = []; this.displayItems = []; this.diffBlocks = [];
+    this.sbsSource.setItems([]); this.charSegs = []; this.displayItems = []; this.diffBlocks = [];
     this.added = 0; this.deleted = 0; this.modified = 0; this.similarity = 0; this.blockCnt = 0;
     this.navIdx = 0; this.editingIndex = -1;
     if (tab.textA || tab.textB) {
@@ -335,6 +419,7 @@ struct MultiTabDiffPage {
   private doDiff(): void {
     const tab = this.tabs[this.activeIdx];
     if (!tab) return;
+    AnalyticsService.track('run_diff');
     this.doDiffInternal(tab.textA, tab.textB);
   }
 
@@ -347,15 +432,16 @@ struct MultiTabDiffPage {
       this.lineNosA.push(line.lineNumberA); this.lineNosB.push(line.lineNumberB);
       this.charSegs.push(line.charSegments);
     }
-    this.sbsPairs = [];
+    const pairs: SbsPair[] = [];
     const len = Math.max(result.leftLines.length, result.rightLines.length);
     for (let i = 0; i < len; i++) {
       let l = result.leftLines[i], r = result.rightLines[i];
-      this.sbsPairs.push({
+      pairs.push({
         leftType: l ? l.type : 0, leftContent: l ? l.content : '', leftLineNo: l ? l.lineNumberA : -1,
         rightType: r ? r.type : 0, rightContent: r ? r.content : '', rightLineNo: r ? r.lineNumberB : -1
       });
     }
+    this.sbsSource.setItems(pairs);
     this.added = result.stats.addedCount; this.deleted = result.stats.deletedCount;
     this.modified = result.stats.modifiedCount; this.similarity = result.stats.similarityPercent;
     this.blockCnt = result.stats.diffBlockCount; this.hasResult = true;
@@ -387,6 +473,46 @@ struct MultiTabDiffPage {
     this.doDiffInternal(tab ? tab.textA : '', tab ? tab.textB : '');
   }
 
+  // ===================== 会话持久化（仅存 URI+名称，重启后重读文件） =====================
+  /** 将当前含文件 URI 的 Tab 序列化到持久存储（最多 8 个，防止膨胀） */
+  private persistTabs(): void {
+    const persisted: PersistedTab[] = [];
+    for (const t of this.tabs) {
+      if (t.uriA || t.uriB) {
+        persisted.push({ label: t.label, fileAName: t.fileAName, fileBName: t.fileBName, uriA: t.uriA, uriB: t.uriB });
+      }
+      if (persisted.length >= 8) break;
+    }
+    this.openTabsRaw = JSON.stringify(persisted);
+  }
+
+  /** 安全读取文件内容，失败返回空串 */
+  private safeRead(uri: string): string {
+    if (!uri) return '';
+    try {
+      const r = FileContentService.readFileContent(uri);
+      return r.content;
+    } catch (_e) {
+      return '';
+    }
+  }
+
+  /** 从持久存储恢复上次打开的 Tab（重新读取文件内容） */
+  private restoreTabs(): void {
+    let persisted: PersistedTab[] = [];
+    try { persisted = JSON.parse(this.openTabsRaw) as PersistedTab[]; } catch (_e) { persisted = []; }
+    const valid = persisted.filter(t => t && (t.uriA || t.uriB));
+    if (valid.length === 0) return;
+    for (const pt of valid) {
+      const textA = this.safeRead(pt.uriA);
+      const textB = this.safeRead(pt.uriB);
+      this.addTab(pt.label || '已恢复', textA, textB, pt.fileBName || '', pt.fileAName || '', pt.uriA, pt.uriB);
+    }
+    // 恢复后切到第一个 Tab
+    this.activeIdx = 0;
+    this.restoreTab();
+  }
+
   // ===================== 最近文件 =====================
   private loadRecentFiles(): void {
     try { this.recentFiles = JSON.parse(this.recentFilesRaw); } catch (_e) { this.recentFiles = []; }
@@ -403,7 +529,15 @@ struct MultiTabDiffPage {
   private clearRecent(): void { this.recentFiles = []; this.recentFilesRaw = '[]'; }
 
   private openRecent(rf: RecentFile): void {
-    try { this.tabs[this.activeIdx].textA = FileContentService.readFileContent(rf.path).content; this.doTabLabel(); } catch (_e) {}
+    try {
+      const fc = FileContentService.readFileContent(rf.path);
+      this.tabs[this.activeIdx].textA = fc.content;
+      this.tabs[this.activeIdx].fileAName = rf.name;
+      this.tabs[this.activeIdx].uriA = rf.path;
+      if (fc.error) this.toast(fc.error);
+      this.doTabLabel();
+      this.persistTabs();
+    } catch (_e) {}
   }
 
   private formatTime(ts: number): string { return new Date(ts).toLocaleDateString(); }
@@ -415,13 +549,17 @@ struct MultiTabDiffPage {
       new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions)
         .then((uris: string[]) => {
           if (uris.length > 0) {
-            const name = FileContentService.extractFileName(uris[0]);
-            this.tabs[this.activeIdx].textA = FileContentService.readFileContent(uris[0]).content;
+            const fc = FileContentService.readFileContent(uris[0]);
+            const name = fc.fileName;
+            this.tabs[this.activeIdx].textA = fc.content;
             this.tabs[this.activeIdx].fileAName = name;
+            this.tabs[this.activeIdx].uriA = uris[0];
+            if (fc.error) this.toast(fc.error);
             this.doTabLabel();
             this.saveRecent(name, uris[0]);
+            this.persistTabs();
           }
-        });
+        }).catch(() => {});
     } catch (_e) {}
   }
 
@@ -431,13 +569,17 @@ struct MultiTabDiffPage {
       new picker.DocumentViewPicker(ctx).select({ maxSelectNumber: 1 } as picker.DocumentSelectOptions)
         .then((uris: string[]) => {
           if (uris.length > 0) {
-            const name = FileContentService.extractFileName(uris[0]);
-            this.tabs[this.activeIdx].textB = FileContentService.readFileContent(uris[0]).content;
+            const fc = FileContentService.readFileContent(uris[0]);
+            const name = fc.fileName;
+            this.tabs[this.activeIdx].textB = fc.content;
             this.tabs[this.activeIdx].fileBName = name;
+            this.tabs[this.activeIdx].uriB = uris[0];
+            if (fc.error) this.toast(fc.error);
             this.doTabLabel();
             this.saveRecent(name, uris[0]);
+            this.persistTabs();
           }
-        });
+        }).catch(() => {});
     } catch (_e) {}
   }
 
@@ -446,6 +588,11 @@ struct MultiTabDiffPage {
     if (tab.fileAName && tab.fileBName) tab.label = `${tab.fileAName} ↔ ${tab.fileBName}`;
     else if (tab.fileAName) tab.label = tab.fileAName;
     else if (tab.fileBName) tab.label = tab.fileBName;
+  }
+
+  /** 轻量 Toast 反馈 */
+  private toast(msg: string): void {
+    try { promptAction.showToast({ message: msg, duration: 2000 }); } catch (_e) { /* ignore */ }
   }
 
   // ===================== 搜索 =====================
@@ -471,7 +618,8 @@ struct MultiTabDiffPage {
       lines.push(`${pf} ${this.lineContents[i]}`);
     }
     const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, lines.join('\n'));
-    pasteboard.getSystemPasteboard().setPasteData(data);
+    pasteboard.getSystemPasteboard().setData(data);
+    AnalyticsService.track('export');
     AlertDialog.show({ title: '已复制', message: `${this.blockCnt}个差异块 → 剪贴板`, autoCancel: true });
   }
 

@@ -61,6 +61,13 @@ interface TreeNode {
   children: TreeNode[];
   expanded: boolean;
   parentPath: string;     // 父目录路径
+  fileCount: number;      // 预计算的子文件数（避免每帧 O(N²) 递归统计）
+}
+
+/** 扁平化后的可见行（供单一 ForEach 渲染） */
+interface FlatNode {
+  node: TreeNode;
+  depth: number;
 }
 
 /** 排序方式 */
@@ -76,6 +83,7 @@ struct DirectoryDiffPage {
   @State filesA: FileEntry[] = [];
   @State filesB: FileEntry[] = [];
   @State treeNodes: TreeNode[] = [];
+  @State flatNodes: FlatNode[] = [];
   @State compared: boolean = false;
   @State totalCount: number = 0;
   @State identicalCount: number = 0;
@@ -90,11 +98,19 @@ struct DirectoryDiffPage {
 
   private theme: ThemeColors = ThemeColors.getInstance();
 
+  aboutToDisappear(): void {
+    // 释放全量文件内容缓冲，避免退出后仍被持有导致 OOM
+    this.filesA = [];
+    this.filesB = [];
+    this.treeNodes = [];
+    this.flatNodes = [];
+  }
+
   build() {
     Column() {
       // === 头部导航 ===
       Row() {
-        Button({ type: ButtonType.Circle }) { Text('←').fontSize(18).fontColor(this.theme.textPrimary) }
+        Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(18).fontColor([this.theme.textPrimary]) }
         .width(32).height(32).backgroundColor(Color.Transparent)
         .onClick(() => { router.back(); })
 
@@ -107,14 +123,20 @@ struct DirectoryDiffPage {
 
       // === 操作栏 ===
       Row() {
-        Button('📂 选择文件组A').fontSize(11).height(30).type(ButtonType.Capsule)
-          .backgroundColor('#E8F5E9').fontColor('#1A7F37').borderRadius(8)
-          .padding({ left: 8, right: 8 }).enabled(!this.scanning)
-          .onClick(() => { this.pickGroupA(); })
-        Button('📂 选择文件组B').fontSize(11).height(30).type(ButtonType.Capsule)
-          .backgroundColor('#FFEBEE').fontColor('#BE2E2E').borderRadius(8)
-          .padding({ left: 8, right: 8 }).enabled(!this.scanning)
-          .margin({ left: 4 }).onClick(() => { this.pickGroupB(); })
+        Row() {
+          SymbolGlyph($r('sys.symbol.folder_badge_plus')).fontSize(11).fontColor(['#1A7F37']).margin({ right: 2 })
+          Text('选择文件组A').fontSize(11)
+        }
+        .height(30).backgroundColor('#E8F5E9').borderRadius(8)
+        .padding({ left: 8, right: 8 }).enabled(!this.scanning)
+        .onClick(() => { this.pickGroupA(); })
+        Row() {
+          SymbolGlyph($r('sys.symbol.folder_badge_plus')).fontSize(11).fontColor(['#BE2E2E']).margin({ right: 2 })
+          Text('选择文件组B').fontSize(11)
+        }
+        .height(30).backgroundColor('#FFEBEE').borderRadius(8)
+        .padding({ left: 8, right: 8 }).margin({ left: 4 }).enabled(!this.scanning)
+        .onClick(() => { this.pickGroupB(); })
         Button('对比').fontSize(11).height(30).type(ButtonType.Capsule)
           .backgroundColor('#007AFF').fontColor(Color.White).borderRadius(8)
           .padding({ left: 8, right: 8 }).margin({ left: 4 }).enabled(!this.scanning)
@@ -178,7 +200,7 @@ struct DirectoryDiffPage {
             Text('仅差异').fontSize(10).fontColor(this.showOnlyDiff ? '#007AFF' : this.theme.textSecondary)
             Toggle({ type: ToggleType.Switch, isOn: this.showOnlyDiff })
               .width(28).height(14).margin({ left: 2 })
-              .onChange((on: boolean) => { this.showOnlyDiff = on; })
+              .onChange((on: boolean) => { this.showOnlyDiff = on; this.rebuildFlatList(); })
           }
 
           Blank()
@@ -206,14 +228,14 @@ struct DirectoryDiffPage {
         .backgroundColor(this.theme.surfaceBackground)
       }
 
-      // === 树状文件列表 ===
+      // === 树状文件列表（扁平化单层渲染，避免递归 ForEach） ===
       if (this.compared) {
         List({ space: 0 }) {
-          ForEach(this.filteredNodes(), (node: TreeNode, idx: number) => {
+          ForEach(this.flatNodes, (fn: FlatNode) => {
             ListItem() {
-              this.treeNodeItem(node)
+              this.treeRowItem(fn.node)
             }
-          }, (node: TreeNode, idx: number) => `tn_${node.path}_${idx}`)
+          }, (fn: FlatNode) => `tn_${fn.node.path}_${fn.depth}`)
         }
         .width('100%').layoutWeight(1).backgroundColor(this.theme.pageBackground)
       } else {
@@ -227,78 +249,78 @@ struct DirectoryDiffPage {
     .width('100%').height('100%').backgroundColor(this.theme.pageBackground)
   }
 
-  // ===================== 树节点 =====================
+  // ===================== 树节点（扁平行） =====================
   @Builder
-  treeNodeItem(node: TreeNode) {
-    Column() {
-      Row() {
-        // 缩进 + 展开图标
-        if (node.isDir) {
-          Text(node.expanded ? '▼' : '▶').fontSize(10).fontColor('#999')
-            .width(node.level * 12 + 16).textAlign(TextAlign.End)
-            .onClick(() => { node.expanded = !node.expanded; this.treeNodes = [...this.treeNodes]; })
-        } else {
-          Blank().width(node.level * 12 + 16)
-        }
-
-        // 状态图标
-        Text(this.statusIcon(node.status)).fontSize(12).width(20).textAlign(TextAlign.Center)
-
-        // 文件/目录名
-        Text(node.name).fontSize(12)
-          .fontColor(node.status === FileStatus.MODIFIED ? '#D4A017'
-            : node.status === FileStatus.ONLY_IN_A ? '#BE2E2E'
-            : node.status === FileStatus.ONLY_IN_B ? '#1565C0'
-            : this.theme.textPrimary)
-          .fontWeight(node.isDir ? FontWeight.Medium : FontWeight.Normal)
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-
-        // 相似度
-        if (node.status === FileStatus.MODIFIED && !node.isDir) {
-          Text(`${node.similarity}%`).fontSize(10).fontColor('#D4A017').margin({ left: 4 })
-        }
-
-        // 大小
-        if (!node.isDir && node.fileEntry) {
-          Text(this.formatSize(Math.max(node.fileEntry.sizeA, node.fileEntry.sizeB))).fontSize(9).fontColor('#999').margin({ left: 6, right: 6 })
-        }
-
-        // 子文件数
-        if (node.isDir) {
-          Text(`${this.countFiles(node)}`).fontSize(9).fontColor('#BBB').margin({ right: 6 })
-        }
+  treeRowItem(node: TreeNode) {
+    Row() {
+      // 缩进 + 展开图标
+      if (node.isDir) {
+        SymbolGlyph(node.expanded ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
+          .fontSize(10).fontColor(['#999'])
+          .width(node.level * 12 + 16)
+          .onClick(() => { node.expanded = !node.expanded; this.rebuildFlatList(); })
+      } else {
+        Blank().width(node.level * 12 + 16)
       }
-      .width('100%').height(32).padding({ left: 0, right: 4 })
-      .backgroundColor('#FFFFFF').border({ width: { bottom: 0.5 }, color: '#F0F0F0' })
-      .onClick(() => {
-        if (!node.isDir && node.fileEntry) {
-          if (node.status === FileStatus.MODIFIED || node.status === FileStatus.IDENTICAL) {
-            this.openDiff(node.fileEntry);
-          }
-        } else {
-          node.expanded = !node.expanded;
-          this.treeNodes = [...this.treeNodes];
-        }
-      })
 
-      // 递归渲染子节点
-      if (node.isDir && node.expanded) {
-        ForEach(this.sortChildren(node.children), (child: TreeNode, ci: number) => {
-          this.treeNodeItem(child)
-        }, (child: TreeNode, ci: number) => `tchild_${child.path}_${ci}`)
+      // 状态图标
+      Text(this.statusIcon(node.status)).fontSize(12).width(20).textAlign(TextAlign.Center)
+
+      // 文件/目录名
+      Text(node.name).fontSize(12)
+        .fontColor(node.status === FileStatus.MODIFIED ? '#D4A017'
+          : node.status === FileStatus.ONLY_IN_A ? '#BE2E2E'
+          : node.status === FileStatus.ONLY_IN_B ? '#1565C0'
+          : this.theme.textPrimary)
+        .fontWeight(node.isDir ? FontWeight.Medium : FontWeight.Normal)
+        .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
+
+      // 相似度
+      if (node.status === FileStatus.MODIFIED && !node.isDir) {
+        Text(`${node.similarity}%`).fontSize(10).fontColor('#D4A017').margin({ left: 4 })
+      }
+
+      // 大小
+      if (!node.isDir && node.fileEntry) {
+        Text(this.formatSize(Math.max(node.fileEntry.sizeA, node.fileEntry.sizeB))).fontSize(9).fontColor('#999').margin({ left: 6, right: 6 })
+      }
+
+      // 子文件数（使用预计算值，O(1)）
+      if (node.isDir) {
+        Text(`${node.fileCount}`).fontSize(9).fontColor('#BBB').margin({ right: 6 })
       }
     }
+    .width('100%').height(32).padding({ left: 0, right: 4 })
+    .backgroundColor('#FFFFFF').border({ width: { bottom: 0.5 }, color: '#F0F0F0' })
+    .onClick(() => {
+      if (!node.isDir && node.fileEntry) {
+        if (node.status === FileStatus.MODIFIED || node.status === FileStatus.IDENTICAL) {
+          this.openDiff(node.fileEntry);
+        }
+      } else {
+        node.expanded = !node.expanded;
+        this.rebuildFlatList();
+      }
+    })
+  }
+
+  // ===================== 扁平化列表构建 =====================
+  /** 根据当前 treeNodes + 展开/过滤/排序状态，重建扁平可见行列表 */
+  private rebuildFlatList(): void {
+    const out: FlatNode[] = [];
+    const visit = (nodes: TreeNode[]) => {
+      const sorted = this.sortChildren(nodes);
+      for (const n of sorted) {
+        if (this.showOnlyDiff && n.status === FileStatus.IDENTICAL) continue;
+        out.push({ node: n, depth: n.level });
+        if (n.isDir && n.expanded) visit(n.children);
+      }
+    };
+    visit(this.treeNodes);
+    this.flatNodes = out;
   }
 
   // ===================== 过滤 + 排序 =====================
-  private filteredNodes(): TreeNode[] {
-    let nodes = this.sortChildren(this.treeNodes);
-    if (this.showOnlyDiff) {
-      nodes = nodes.filter(n => n.status !== FileStatus.IDENTICAL);
-    }
-    return nodes;
-  }
-
   private sortChildren(children: TreeNode[]): TreeNode[] {
     const sorted = [...children];
     if (this.sortMode === SortMode.BY_NAME) {
@@ -405,7 +427,10 @@ struct DirectoryDiffPage {
   // ===================== 对比逻辑 =====================
   private doCompare(): void {
     this.treeNodes = [];
+    this.flatNodes = [];
     this.compared = false;
+    this.scanning = true;
+    this.scanStatus = '正在对比文件内容...';
     this.identicalCount = 0; this.modifiedCount = 0;
     this.onlyACount = 0; this.onlyBCount = 0;
 
@@ -461,9 +486,11 @@ struct DirectoryDiffPage {
 
     this.totalCount = mergedFiles.length;
     this.compared = true;
+    this.scanning = false;
 
-    // 构建树结构
+    // 构建树结构 + 扁平化可见列表
     this.treeNodes = this.buildTree(mergedFiles);
+    this.rebuildFlatList();
   }
 
   // ===================== 树构建 =====================
@@ -471,10 +498,10 @@ struct DirectoryDiffPage {
     const rootNodes: TreeNode[] = [];
     const dirMap = new Map<string, TreeNode>();
 
-    // 先按路径排序
-    files.sort((a, b) => a.path.localeCompare(b.path));
+    // 先按路径排序（操作副本，避免改调用方数组）
+    const sortedFiles = [...files].sort((a, b) => a.path.localeCompare(b.path));
 
-    for (const file of files) {
+    for (const file of sortedFiles) {
       const pathParts = file.path.split('/');
       let currentParentPath = '';
 
@@ -489,7 +516,7 @@ struct DirectoryDiffPage {
             name, path: file.path, isDir: false, level: i,
             status: file.status, similarity: file.similarity,
             fileEntry: file, children: [], expanded: false,
-            parentPath: currentParentPath
+            parentPath: currentParentPath, fileCount: 0
           };
 
           if (currentParentPath && dirMap.has(currentParentPath)) {
@@ -504,7 +531,7 @@ struct DirectoryDiffPage {
               name, path: currentPath, isDir: true, level: i,
               status: FileStatus.IDENTICAL, similarity: 100,
               children: [], expanded: this.expandAll,
-              parentPath: currentParentPath
+              parentPath: currentParentPath, fileCount: 0
             };
             dirMap.set(currentPath, dirNode);
 
@@ -525,7 +552,7 @@ struct DirectoryDiffPage {
     return rootNodes;
   }
 
-  /** 递归更新目录状态 = 子节点中的最差状态 */
+  /** 递归更新目录状态 = 子节点中的最差状态；同时预计算 fileCount */
   private updateDirStatus(nodes: TreeNode[]): void {
     for (const node of nodes) {
       if (node.isDir) {
@@ -535,13 +562,16 @@ struct DirectoryDiffPage {
           let worst = FileStatus.IDENTICAL;
           let totalSim = 0;
           let simCount = 0;
+          let fcount = 0;
           for (const child of node.children) {
             if (child.status > worst) worst = child.status;
             totalSim += child.similarity;
             simCount++;
+            fcount += child.isDir ? child.fileCount : 1;
           }
           node.status = worst;
           node.similarity = simCount > 0 ? Math.round(totalSim / simCount) : 100;
+          node.fileCount = fcount;
         }
       }
     }
@@ -558,6 +588,7 @@ struct DirectoryDiffPage {
     };
     collectFiles(this.treeNodes);
     this.treeNodes = this.buildTree(allFiles);
+    this.rebuildFlatList();
   }
 
   private toggleExpandAll(): void {
@@ -569,7 +600,7 @@ struct DirectoryDiffPage {
     };
     toggleExpand(this.treeNodes);
     this.expandAll = !this.expandAll;
-    this.treeNodes = [...this.treeNodes];
+    this.rebuildFlatList();
   }
 
   // ===================== 工具方法 =====================
@@ -596,20 +627,12 @@ struct DirectoryDiffPage {
     return (bytes / 1048576).toFixed(1) + 'MB';
   }
 
-  private countFiles(node: TreeNode): number {
-    let count = 0;
-    for (const child of node.children) {
-      if (!child.isDir) count++;
-      else count += this.countFiles(child);
-    }
-    return count;
-  }
-
   private openDiff(entry: FileEntry): void {
     AppStorage.setOrCreate('dirDiffContentA', entry.contentA);
     AppStorage.setOrCreate('dirDiffContentB', entry.contentB);
-    AppStorage.setOrCreate('dirDiffNameA', entry.path);
-    AppStorage.setOrCreate('dirDiffNameB', entry.path);
+    // 区分 A/B 侧标签，避免工具栏显示相同路径
+    AppStorage.setOrCreate('dirDiffNameA', `A/${entry.path}`);
+    AppStorage.setOrCreate('dirDiffNameB', `B/${entry.path}`);
     router.pushUrl({ url: 'pages/DiffEditorPage' });
   }
 }

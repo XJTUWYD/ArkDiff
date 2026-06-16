@@ -76,7 +76,7 @@ export class FilterRuleEngine {
     }
 
     for (let i = 0; i < lines.length; i++) {
-      let line = lines[i];
+      const line = lines[i];
 
       // 仅差异模式
       if (diffRowSet && !diffRowSet.has(i)) continue;
@@ -84,10 +84,7 @@ export class FilterRuleEngine {
       // 忽略空行
       if (config.ignoreBlankLines && line.trim() === '') continue;
 
-      // 忽略空白
-      if (config.ignoreWhitespace) line = line.trim();
-      if (config.ignoreAllWhitespace) line = line.replace(/\s+/g, '');
-
+      // 注：本函数返回的是行索引，不在此处修改行内容（空白规范化由 normalizeLine 负责）
       indices.push(i);
     }
 
@@ -132,38 +129,43 @@ export class FilterRuleEngine {
   /**
    * 文件路径是否匹配 glob 模式
    * 支持简单通配符：* 匹配任意字符（不含/），** 匹配任意路径
+   * 正则按 pattern 缓存，避免目录对比时 N×M 次重复编译
    */
+  private static _globCache: Map<string, RegExp> = new Map();
   static matchesGlob(filePath: string, pattern: string): boolean {
-    // 将 glob 模式转为正则
-    let regexStr = '^';
-    // 转义特殊字符
-    const escape = (s: string) => s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
-    let i = 0;
-    while (i < pattern.length) {
-      if (pattern[i] === '*' && i + 1 < pattern.length && pattern[i + 1] === '*') {
-        // ** — 匹配任意路径（包括 /）
-        regexStr += '.*';
-        i += 2;
-      } else if (pattern[i] === '*') {
-        // * — 匹配非 / 的任意字符
-        regexStr += '[^/]*';
-        i += 1;
-      } else if (pattern[i] === '?') {
-        regexStr += '[^/]';
-        i += 1;
-      } else {
-        regexStr += escape(pattern[i]);
-        i += 1;
+    let re = FilterRuleEngine._globCache.get(pattern);
+    if (re === undefined) {
+      // 将 glob 模式转为正则
+      let regexStr = '^';
+      // 转义特殊字符
+      const escape = (s: string) => s.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      let i = 0;
+      while (i < pattern.length) {
+        if (pattern[i] === '*' && i + 1 < pattern.length && pattern[i + 1] === '*') {
+          // ** — 匹配任意路径（包括 /）
+          regexStr += '.*';
+          i += 2;
+        } else if (pattern[i] === '*') {
+          // * — 匹配非 / 的任意字符
+          regexStr += '[^/]*';
+          i += 1;
+        } else if (pattern[i] === '?') {
+          regexStr += '[^/]';
+          i += 1;
+        } else {
+          regexStr += escape(pattern[i]);
+          i += 1;
+        }
+      }
+      regexStr += '$';
+      try {
+        re = new RegExp(regexStr);
+        FilterRuleEngine._globCache.set(pattern, re);
+      } catch (_e) {
+        return false;
       }
     }
-    regexStr += '$';
-
-    try {
-      const re = new RegExp(regexStr);
-      return re.test(filePath);
-    } catch (_e) {
-      return false;
-    }
+    return re.test(filePath);
   }
 
   /**
