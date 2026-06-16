@@ -35,9 +35,16 @@ export class ThemeColorMap {
   prefixDefault: string = '';
 }
 
+// 主题单例缓存：getLightColors/getDarkColors/getMonokaiColors 返回不可变共享实例，
+// 避免在列表渲染循环中每行每帧重复分配 ~30 字段的对象（GC 风暴）。
+let _lightCache: ThemeColorMap | null = null;
+let _darkCache: ThemeColorMap | null = null;
+let _monokaiCache: ThemeColorMap | null = null;
+
 // ==================== Diff 着色 Tokens（Light 模式） ====================
 
 export function getLightColors(): ThemeColorMap {
+  if (_lightCache !== null) return _lightCache;
   let c = new ThemeColorMap();
   c.diffAddedBackground = '#E6FFEC';
   c.diffAddedGutterBackground = '#C6F0D0';
@@ -66,12 +73,14 @@ export function getLightColors(): ThemeColorMap {
   c.prefixDeleted = '#BE2E2E';
   c.prefixModified = '#D4A017';
   c.prefixDefault = '#CCCCCC';
+  _lightCache = c;
   return c;
 }
 
 // ==================== Diff 着色 Tokens（Dark 模式） ====================
 
 export function getDarkColors(): ThemeColorMap {
+  if (_darkCache !== null) return _darkCache;
   let c = new ThemeColorMap();
   c.diffAddedBackground = '#1A3A2A';
   c.diffAddedGutterBackground = '#0F2A1C';
@@ -100,12 +109,14 @@ export function getDarkColors(): ThemeColorMap {
   c.prefixDeleted = '#F06A6A';
   c.prefixModified = '#E6DB74';
   c.prefixDefault = '#666666';
+  _darkCache = c;
   return c;
 }
 
 // ==================== Diff 着色 Tokens（Monokai 模式） ====================
 
 export function getMonokaiColors(): ThemeColorMap {
+  if (_monokaiCache !== null) return _monokaiCache;
   let c = new ThemeColorMap();
   c.diffAddedBackground = '#232D1A';
   c.diffAddedGutterBackground = '#1A2412';
@@ -134,6 +145,7 @@ export function getMonokaiColors(): ThemeColorMap {
   c.prefixDeleted = '#F92672';
   c.prefixModified = '#E6DB74';
   c.prefixDefault = '#75715E';
+  _monokaiCache = c;
   return c;
 }
 

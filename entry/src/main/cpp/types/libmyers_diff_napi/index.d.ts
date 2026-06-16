@@ -24,3 +24,7 @@ export interface NativeDiffResult {
  * @returns LCS 匹配结果，包含所有匹配行对
  */
 export const computeDiff: (linesA: string[], linesB: string[]) => NativeDiffResult;
+
+/** 默认导出（消费方使用 default import） */
+declare const nativeMyers: { computeDiff: typeof computeDiff };
+export default nativeMyers;

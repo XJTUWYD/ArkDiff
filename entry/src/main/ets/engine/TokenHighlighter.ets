@@ -57,6 +57,18 @@ const C_KEYWORDS = new Set([
   'endif','pragma','printf','scanf','malloc','free','main',
 ]);
 
+const CSHARP_KEYWORDS = new Set([
+  'abstract','as','async','await','base','bool','break','byte','case','catch','char',
+  'checked','class','const','continue','decimal','default','delegate','do','double','else',
+  'enum','event','explicit','extern','false','finally','fixed','float','for','foreach',
+  'goto','if','implicit','in','int','interface','internal','is','lock','long','namespace',
+  'new','null','object','operator','out','override','params','partial','private','protected',
+  'public','readonly','ref','return','sbyte','sealed','short','sizeof','stackalloc','static',
+  'string','struct','switch','this','throw','true','try','typeof','uint','ulong','unchecked',
+  'unsafe','ushort','using','var','virtual','void','volatile','while','yield','get','set',
+  'value','var',
+]);
+
 // 扩展名 → 关键词集
 const EXT_KEYWORDS: Record<string, Set<string>> = {
   '.ets': ARKTS_KEYWORDS, '.ts': ARKTS_KEYWORDS, '.tsx': ARKTS_KEYWORDS,
@@ -64,7 +76,7 @@ const EXT_KEYWORDS: Record<string, Set<string>> = {
   '.py': PYTHON_KEYWORDS, '.pyw': PYTHON_KEYWORDS,
   '.java': JAVA_KEYWORDS,
   '.c': C_KEYWORDS, '.cpp': C_KEYWORDS, '.cc': C_KEYWORDS, '.cxx': C_KEYWORDS,
-  '.h': C_KEYWORDS, '.hpp': C_KEYWORDS, '.cs': C_KEYWORDS,
+  '.h': C_KEYWORDS, '.hpp': C_KEYWORDS, '.cs': CSHARP_KEYWORDS,
 };
 
 // C-style: // 单行, /* */ 块
@@ -127,14 +139,33 @@ export class TokenHighlighter {
         i = strEnd; continue;
       }
 
-      // 数字
+      // 数字（含 0x/0b/0o 前缀、小数、科学计数法）
       if ((ch >= '0' && ch <= '9') || (ch === '.' && i + 1 < len && line.charAt(i + 1) >= '0' && line.charAt(i + 1) <= '9')) {
-        let numEnd = i; let hasDot = false;
+        let numEnd = i;
+        // 16/2/8 进制前缀
+        if (ch === '0' && i + 1 < len) {
+          const p = line.charAt(i + 1);
+          if (p === 'x' || p === 'X' || p === 'b' || p === 'B' || p === 'o' || p === 'O') {
+            numEnd = i + 2;
+            while (numEnd < len && TokenHighlighter.isHexChar(line.charAt(numEnd))) numEnd++;
+            tokens.push({ start: i, end: numEnd, type: TokenType.NUMBER });
+            i = numEnd; continue;
+          }
+        }
+        let hasDot = false;
         while (numEnd < len) {
           const nc = line.charAt(numEnd);
           if (nc >= '0' && nc <= '9') { numEnd++; continue; }
           if (nc === '.' && !hasDot) { hasDot = true; numEnd++; continue; }
           break;
+        }
+        // 科学计数法: 1e10 / 1.5e-3
+        if (numEnd < len && (line.charAt(numEnd) === 'e' || line.charAt(numEnd) === 'E')) {
+          let pe = numEnd + 1;
+          if (pe < len && (line.charAt(pe) === '+' || line.charAt(pe) === '-')) pe++;
+          let expDigits = 0;
+          while (pe < len && line.charAt(pe) >= '0' && line.charAt(pe) <= '9') { pe++; expDigits++; }
+          if (expDigits > 0) numEnd = pe;
         }
         tokens.push({ start: i, end: numEnd, type: TokenType.NUMBER });
         i = numEnd; continue;
@@ -157,9 +188,16 @@ export class TokenHighlighter {
       // 标识符/关键词
       let idEnd = i;
       while (idEnd < len && TokenHighlighter.isIdentChar(line.charAt(idEnd))) idEnd++;
-      const word = line.substring(i, idEnd);
-      tokens.push({ start: i, end: idEnd, type: keywords.has(word) ? TokenType.KEYWORD : TokenType.IDENTIFIER });
-      i = idEnd;
+      if (idEnd > i) {
+        const word = line.substring(i, idEnd);
+        tokens.push({ start: i, end: idEnd, type: keywords.has(word) ? TokenType.KEYWORD : TokenType.IDENTIFIER });
+        i = idEnd;
+      } else {
+        // 未识别字符（如 CJK / emoji），按单字符 PLAIN 处理并保证前进，避免死循环
+        const step = ch.length;
+        tokens.push({ start: i, end: i + 1, type: TokenType.PLAIN });
+        i += step;
+      }
     }
 
     return tokens;
@@ -175,6 +213,10 @@ export class TokenHighlighter {
   private static isIdentChar(ch: string): boolean {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
       (ch >= '0' && ch <= '9') || ch === '_' || ch === '$' || ch === '@';
+  }
+
+  private static isHexChar(ch: string): boolean {
+    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F') || ch === '_';
   }
 
   static getTokenColor(type: TokenType, isMonokai: boolean): string {

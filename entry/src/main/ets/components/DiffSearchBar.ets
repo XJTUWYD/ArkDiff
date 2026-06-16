@@ -20,7 +20,7 @@ export struct DiffSearchBar {
   build() {
     Row() {
       Button({ type: ButtonType.Circle }) {
-        Text('\u2715').fontSize(12).fontColor(this.getTheme().textSecondary)
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(12).fontColor([this.getTheme().textSecondary])
       }
       .width(24).height(24).backgroundColor(Color.Transparent)
       .onClick(() => { if (this.onClose) this.onClose(); })
@@ -39,14 +39,14 @@ export struct DiffSearchBar {
       }
 
       Button({ type: ButtonType.Circle }) {
-        Text('\u25B2').fontSize(12).fontColor(this.getTheme().textPrimary)
+        SymbolGlyph($r('sys.symbol.chevron_up')).fontSize(12).fontColor([this.getTheme().textPrimary])
       }
       .width(26).height(26).backgroundColor(this.getTheme().dividerColor)
       .enabled(this.totalMatches > 0)
       .onClick(() => { if (this.onNavigatePrev) this.onNavigatePrev(); })
 
       Button({ type: ButtonType.Circle }) {
-        Text('\u25BC').fontSize(12).fontColor(this.getTheme().textPrimary)
+        SymbolGlyph($r('sys.symbol.chevron_down')).fontSize(12).fontColor([this.getTheme().textPrimary])
       }
       .width(26).height(26).backgroundColor(this.getTheme().dividerColor).margin({ left: 4 })
       .enabled(this.totalMatches > 0)

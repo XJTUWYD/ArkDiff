@@ -44,6 +44,7 @@ interface EditSnapshot {
 /** 最大历史记录数 */
 const MAX_HISTORY = 50;
 
+@Observed
 export class DiffSessionViewModel {
   // ==================== 文件 / 输入状态 ====================
   textA: string = '';
@@ -141,7 +142,7 @@ export class DiffSessionViewModel {
       this.searchCurrentIndex = 0;
       this._searchMatchLineSet = new Set();
     } catch (e) {
-      const msg = e instanceof Object ? JSON.stringify(e) : String(e);
+      const msg = DiffSessionViewModel.errorMessage(e);
       console.error('DiffSessionViewModel.runTextDiff error:', msg);
       this.lastError = `Diff 计算失败: ${msg}`;
       this.diffResult = null;
@@ -157,6 +158,7 @@ export class DiffSessionViewModel {
   loadFileAndDiff(uriA: string, uriB: string): void {
     this.isComputing = true;
     this.isFileMode = true;
+    this.lastError = null;
     try {
       const resultA = FileContentService.readFileContent(uriA);
       const resultB = FileContentService.readFileContent(uriB);
@@ -164,15 +166,20 @@ export class DiffSessionViewModel {
       this.fileNameA = resultA.fileName;
       this.fileNameB = resultB.fileName;
 
-      if (resultA.error && !resultA.isBinary) {
+      // 读取失败直接报错，避免用空内容跑出误导性 diff
+      if (resultA.error) {
+        this.lastError = `文件A: ${resultA.error}`;
         console.error('读取文件A失败:', resultA.error);
-      }
-      if (resultB.error && !resultB.isBinary) {
+      } else if (resultB.error) {
+        this.lastError = `文件B: ${resultB.error}`;
         console.error('读取文件B失败:', resultB.error);
       }
 
       this.textA = resultA.content;
       this.textB = resultB.content;
+
+      // 加载全新文件，清空旧的 undo/redo 历史（否则撤销会跳回上一个文件）
+      this.resetHistory();
 
       const options: DiffOptions = {
         ignoreBlankLines: this.ignoreBlankLines,
@@ -189,10 +196,22 @@ export class DiffSessionViewModel {
       this.searchCurrentIndex = 0;
       this._searchMatchLineSet = new Set();
     } catch (e) {
-      console.error('DiffSessionViewModel.loadFileAndDiff error:', JSON.stringify(e));
+      const msg = DiffSessionViewModel.errorMessage(e);
+      console.error('DiffSessionViewModel.loadFileAndDiff error:', msg);
+      this.lastError = `加载文件失败: ${msg}`;
+      this.diffResult = null;
+      this.diffBlocks = [];
     } finally {
       this.isComputing = false;
     }
+  }
+
+  /** 安全提取错误信息（Error / BusinessError / 其它） */
+  private static errorMessage(e: Object): string {
+    if (e instanceof Error) return e.message;
+    const rec = e as Record<string, Object>;
+    const msg = rec['message'];
+    return msg !== undefined ? String(msg) : String(e);
   }
 
   /**
@@ -416,7 +435,7 @@ export class DiffSessionViewModel {
     if (sbsStartIdx < 0 || sbsStartIdx >= leftLines.length) return;
 
     const startType = leftLines[sbsStartIdx].type;
-    if (startType !== 2 && startType !== 3) return;
+    if (startType !== DiffType.DELETED && startType !== DiffType.MODIFIED) return;
 
     let count = 1;
     while (sbsStartIdx + count < leftLines.length &&
@@ -465,7 +484,7 @@ export class DiffSessionViewModel {
     if (sbsStartIdx < 0 || sbsStartIdx >= rightLines.length) return;
 
     const startType = rightLines[sbsStartIdx].type;
-    if (startType !== 1 && startType !== 3) return;
+    if (startType !== DiffType.ADDED && startType !== DiffType.MODIFIED) return;
 
     let count = 1;
     while (sbsStartIdx + count < rightLines.length &&
@@ -515,9 +534,11 @@ export class DiffSessionViewModel {
       const l = L[i], r = R[i];
       if (l.type === DiffType.UNCHANGED && r.type === DiffType.UNCHANGED) {
         out.push({ lineNumberA: l.lineNumberA, lineNumberB: r.lineNumberB, content: l.content, oldContent: '', type: DiffType.UNCHANGED, charSegments: [] });
-      } else if ((l.type === DiffType.DELETED || l.type === DiffType.MODIFIED) && r.type === DiffType.UNCHANGED && r.content === '') {
+      } else if ((l.type === DiffType.DELETED || l.type === DiffType.MODIFIED) && r.lineNumberB <= 0) {
+        // 右侧是占位行（lineNumberB <= 0）：A 侧删除/修改行。用行号而非空内容判断，避免误判真实空行
         out.push({ lineNumberA: l.lineNumberA, lineNumberB: -1, content: l.content, oldContent: '', type: DiffType.DELETED, charSegments: [] });
-      } else if ((r.type === DiffType.ADDED || r.type === DiffType.MODIFIED) && l.type === DiffType.UNCHANGED && l.content === '') {
+      } else if ((r.type === DiffType.ADDED || r.type === DiffType.MODIFIED) && l.lineNumberA <= 0) {
+        // 左侧是占位行（lineNumberA <= 0）：B 侧新增/修改行
         out.push({ lineNumberA: -1, lineNumberB: r.lineNumberB, content: r.content, oldContent: '', type: DiffType.ADDED, charSegments: [] });
       } else {
         out.push({ lineNumberA: l.lineNumberA, lineNumberB: r.lineNumberB, content: r.content, oldContent: l.content, type: DiffType.MODIFIED, charSegments: [] });
@@ -676,7 +697,7 @@ export class DiffSessionViewModel {
     const line = this.diffResult.unifiedLines[this.editState.lineIndex];
 
     // 根据行类型更新 textA 或 textB
-    if (line.type === 2) {
+    if (line.type === DiffType.DELETED) {
       // DELETED 行：更新 textA
       const linesA = this.textA.split('\n');
       const idxA = line.lineNumberA - 1;
@@ -718,8 +739,8 @@ export class DiffSessionViewModel {
     const lines = side === 'left' ? this.diffResult.leftLines : this.diffResult.rightLines;
     if (sbsLineIndex < 0 || sbsLineIndex >= lines.length) return;
     const line = lines[sbsLineIndex];
-    // 不允许编辑空占位行
-    if (line.content.length === 0 && line.type === 0) return;
+    // 不允许编辑空占位行（占位行：无行号且未变更）
+    if (line.content.length === 0 && line.type === DiffType.UNCHANGED && line.lineNumberA <= 0 && line.lineNumberB <= 0) return;
     this.sideEditState = {
       lineIndex: sbsLineIndex,
       originalContent: line.content,
@@ -810,9 +831,13 @@ export class DiffSessionViewModel {
       const sysPasteboard = pasteboard.getSystemPasteboard();
       sysPasteboard.setData(pasteData).then(() => {
         if (callback) callback();
+      }).catch((err: Object) => {
+        const msg = DiffSessionViewModel.errorMessage(err);
+        console.error('DiffSessionViewModel: 剪贴板写入失败:', msg);
       });
-    } catch (_e) {
-      console.error('DiffSessionViewModel: 剪贴板调用失败');
+    } catch (e) {
+      const msg = DiffSessionViewModel.errorMessage(e);
+      console.error('DiffSessionViewModel: 剪贴板调用失败:', msg);
     }
   }
 }

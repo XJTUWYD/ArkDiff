@@ -57,6 +57,8 @@ const MAX_LINE_LENGTH = 10000;
 
 /** 二进制检测阈值：读取前 N 字节 */
 const BINARY_CHECK_SIZE = 8192;
+/** 二进制检测：NUL 字节占比阈值（超过此比例判定为二进制） */
+const BINARY_NULL_RATIO = 0.1;
 
 export class FileContentService {
   /**
@@ -105,8 +107,15 @@ export class FileContentService {
 
       const arr = new Uint8Array(buf, 0, readLen);
 
-      // 检测是否为二进制文件
-      if (FileContentService.isBinaryContent(arr)) {
+      // ===== 编码检测与解码 =====
+      // 先检测 BOM（UTF-16 文件约一半字节是 NUL，必须在二进制检测前判定）
+      const hasUTF8BOM = arr.length >= 3 && arr[0] === 0xEF && arr[1] === 0xBB && arr[2] === 0xBF;
+      const hasUTF16LEBOM = arr.length >= 2 && arr[0] === 0xFF && arr[1] === 0xFE;
+      const hasUTF16BEBOM = arr.length >= 2 && arr[0] === 0xFE && arr[1] === 0xFF;
+      const hasUTF16BOM = hasUTF16LEBOM || hasUTF16BEBOM;
+
+      // 检测是否为二进制文件（带 BOM 的文本编码跳过 NUL 字节启发式）
+      if (!hasUTF16BOM && FileContentService.isBinaryContent(arr)) {
         return {
           content: '',
           fileName: fileName,
@@ -122,13 +131,7 @@ export class FileContentService {
         console.warn(`FileContentService: 文件较大 (${(stat.size / 1048576).toFixed(1)}MB)，可能影响性能: ${fileName}`);
       }
 
-      // ===== 编码检测与解码 =====
-      // 1. 检测 BOM
-      const hasUTF8BOM = arr.length >= 3 && arr[0] === 0xEF && arr[1] === 0xBB && arr[2] === 0xBF;
-      const hasUTF16LEBOM = arr.length >= 2 && arr[0] === 0xFF && arr[1] === 0xFE;
-      const hasUTF16BEBOM = arr.length >= 2 && arr[0] === 0xFE && arr[1] === 0xFF;
-
-      // 2. 编码检测与解码
+      // 编码检测与解码
       // 策略：优先尝试 UTF-8 解码，用 \uFFFD 密度判断是否乱码；
       //       如果 UTF-8 解码产生大量替换字符（>5%），再尝试 GBK。
       //       这样可以避免 UTF-8 中文首字节被误判为 GBK lead byte。
@@ -137,7 +140,8 @@ export class FileContentService {
         if (hasUTF16LEBOM || hasUTF16BEBOM) {
           const encoding = hasUTF16LEBOM ? 'utf-16le' : 'utf-16be';
           const decoder = new util.TextDecoder(encoding, { fatal: false });
-          const u8arr = new Uint8Array(arr);
+          // 跳过 2 字节 BOM，避免解码结果开头出现 U+FEFF
+          const u8arr = new Uint8Array(arr.buffer, arr.byteOffset + 2, arr.length - 2);
           content = decoder.decodeWithStream(u8arr, { stream: false });
         } else {
           // 先尝试 UTF-8 解码
@@ -291,76 +295,6 @@ export class FileContentService {
     return count;
   }
 
-  /**
-   * GBK/GB2312 → UTF-8（字符串）转换
-   * 双字节编码逐字节解码为 Unicode 字符
-   */
-  private static decodeGBK(bytes: Uint8Array): string {
-    const isGBKTrail = (b: number): boolean => b >= 0x40 && b <= 0xFE && b !== 0x7F;
-
-    let result = '';
-    let i = 0;
-    while (i < bytes.length) {
-      const b1 = bytes[i];
-      if (b1 <= 0x7F) {
-        // ASCII 兼容
-        result += String.fromCharCode(b1);
-        i++;
-      } else if (b1 >= 0x81 && b1 <= 0xFE && i + 1 < bytes.length && isGBKTrail(bytes[i + 1])) {
-        // GBK 双字节字符
-        const b2 = bytes[i + 1];
-        const codePoint = FileContentService.gbkCodePointToUnicode(b1, b2);
-        if (codePoint > 0) {
-          result += String.fromCharCode(codePoint);
-        } else {
-          result += '\uFFFD'; // 替换字符
-        }
-        i += 2;
-      } else {
-        // 非法字节
-        result += '\uFFFD';
-        i++;
-      }
-    }
-    return result;
-  }
-
-  /**
-   * GBK/GB2312 双字节 → Unicode 码点
-   * 简化实现，覆盖常用区域
-   */
-  private static gbkCodePointToUnicode(lead: number, trail: number): number {
-    // GBK/1: GB2312 非汉字区 (lead 0xA1-0xA9, trail 0xA1-0xFE)
-    // GBK/2: GB2312 汉字区 (lead 0xB0-0xF7, trail 0xA1-0xFE)
-    // GBK/3: 扩展区1 (lead 0x81-0xA0, trail 0x40-0xFE excl 0x7F)
-    // GBK/4: 扩展区2 (lead 0xAA-0xFE, trail 0x40-0xA0 excl 0x7F)
-    // GBK/5: 扩展区3 (lead 0xA8-0xA9, trail 0x40-0xA0 excl 0x7F)
-
-    if (lead >= 0xB0 && lead <= 0xF7 && trail >= 0xA1 && trail <= 0xFE) {
-      // GB2312 汉字区 → Unicode CJK Unified Ideographs (U+4E00+)
-      const offset = (lead - 0xB0) * 94 + (trail - 0xA1);
-      if (offset >= 0 && offset < 6763) {
-        return 0x4E00 + offset;
-      }
-    } else if (lead >= 0xA1 && lead <= 0xA9 && trail >= 0xA1 && trail <= 0xFE) {
-      // GB2312 符号/标点区 → 简化映射为通用替换
-      return 0xFFFD;
-    } else if (lead >= 0x81 && lead <= 0xA0 && trail >= 0x40 && trail <= 0xFE && trail !== 0x7F) {
-      // GBK/3 扩展汉字 → 映射到 CJK Extension A (U+3400+)
-      const gbkOffset = (lead - 0x81) * 191 + (trail >= 0x80 ? trail - 0x41 : trail - 0x40);
-      if (gbkOffset < 6080) {
-        return 0x3400 + gbkOffset;
-      }
-    } else if (lead >= 0xAA && lead <= 0xFE && trail >= 0x40 && trail <= 0xA0 && trail !== 0x7F) {
-      // GBK/4 补充汉字 → 映射到 CJK Unified Ideographs 补充区
-      return 0xFFFD;
-    } else if (lead >= 0xA8 && lead <= 0xA9 && trail >= 0x40 && trail <= 0xA0 && trail !== 0x7F) {
-      // GBK/5 补充区
-      return 0xFFFD;
-    }
-    return 0;
-  }
-
   // ===================== 元数据与工具方法 =====================
 
   /**
@@ -374,7 +308,7 @@ export class FileContentService {
         fileName: fileName,
         sizeBytes: stat.size,
         isDirectory: stat.isDirectory(),
-        modifiedTime: stat.mtimeNs ? Number(stat.mtimeNs) / 1000000 : Date.now(),
+        modifiedTime: stat.mtimeNs ? Number(stat.mtimeNs) / 1000000 : 0,
         hash: undefined
       };
     } catch (_e) {
@@ -392,13 +326,18 @@ export class FileContentService {
 
   /**
    * 检测内容是否为二进制
-   * 通过检查前部字节中是否包含 null 字节来判断
+   * 启发式：前 N 字节中 NUL 字节占比超过 10% 判定为二进制。
+   * 用比例而非"任一 NUL"可避免 UTF-16 等合法文本被误判。
    */
   private static isBinaryContent(arr: Uint8Array): boolean {
     const checkLen = Math.min(arr.length, BINARY_CHECK_SIZE);
+    if (checkLen === 0) return false;
+    const threshold = Math.max(1, Math.floor(checkLen * BINARY_NULL_RATIO));
+    let nullCount = 0;
     for (let i = 0; i < checkLen; i++) {
       if (arr[i] === 0) {
-        return true;
+        nullCount++;
+        if (nullCount >= threshold) return true;
       }
     }
     return false;

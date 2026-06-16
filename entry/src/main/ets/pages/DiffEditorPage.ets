@@ -5,7 +5,7 @@
  * 同步按钮（← →）原地 patch 不跑全量 re-diff。
  * LazyForEach 虚拟列表渲染大 diff。
  */
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { picker, fileIo as fs } from '@kit.CoreFileKit';
 import { DiffNavigator } from '../components/DiffNavigator';
 import { DiffToolbar } from '../components/DiffToolbar';
@@ -15,6 +15,7 @@ import { DiffSearchBar } from '../components/DiffSearchBar';
 import { SampleDataProvider } from '../utils/SampleDataProvider';
 import { DiffSessionViewModel } from '../viewmodel/DiffSessionViewModel';
 import { FileContentService } from '../services/FileContentService';
+import { AnalyticsService } from '../services/AnalyticsService';
 import { ViewMode } from '../model/DiffModels';
 import {
   ThemeColorMap, getLightColors, getDarkColors, getMonokaiColors,
@@ -75,6 +76,14 @@ struct DiffEditorPage {
     this.updateTheme();
   }
 
+  aboutToDisappear(): void {
+    // 释放大缓冲，避免页面退出后仍被持有
+    this.sbsSource.setItems([]);
+    this.textA = '';
+    this.textB = '';
+    this.session.diffResult = null;
+  }
+
   private updateTheme(): void {
     this.isMonokai = this.colorMode === 'monokai';
     this.theme = this.isMonokai ? getMonokaiColors() : this.colorMode === 'dark' ? getDarkColors() : getLightColors();
@@ -95,7 +104,10 @@ struct DiffEditorPage {
           viewMode: ViewMode.SIDE_BY_SIDE, isComputing: this.session.isComputing,
           searchActive: this.session.searchVisible,
           isMonokai: this.isMonokai, isDark: this.colorMode === 'dark',
+          canUndo: this.session.canUndo, canRedo: this.session.canRedo,
           onRunDiff: () => { this.syncSessionOptions(); this.runDiffAndSync(); },
+          onUndo: () => { this.doUndo(); },
+          onRedo: () => { this.doRedo(); },
           onPasteSample: () => { this.pasteSample(); },
           onOpenSettings: () => { router.pushUrl({ url: 'pages/SettingsPage' }); },
           onToggleSearch: () => { this.toggleSearch(); },
@@ -143,8 +155,8 @@ struct DiffEditorPage {
                   isRightEditing: this.session.isSideEditing(i, 'right'),
                   isLeftBlockStart: p.isLeftBlockStart, isRightBlockStart: p.isRightBlockStart,
                   sideEditBuffer: $editBuffer,
-                  onSyncToRight: () => { this.session.syncBlockToRight(i); this.syncBothAfterEdit(); },
-                  onSyncToLeft: () => { this.session.syncBlockToLeft(i); this.syncBothAfterEdit(); },
+                  onSyncToRight: () => { this.session.syncBlockToRight(i); this.syncBothAfterEdit(); AnalyticsService.track('sync_to_right'); },
+                  onSyncToLeft: () => { this.session.syncBlockToLeft(i); this.syncBothAfterEdit(); AnalyticsService.track('sync_to_left'); },
                   onLeftClick: () => { if (!this.session.isSideEditing(i, 'left') && p.leftContent.length > 0) { this.editBuffer = p.leftContent; this.session.startSideEdit(i, 'left'); } },
                   onRightClick: () => { if (!this.session.isSideEditing(i, 'right') && p.rightContent.length > 0) { this.editBuffer = p.rightContent; this.session.startSideEdit(i, 'right'); } },
                   onLeftEditSubmit: (v: string) => { this.session.submitSideEdit(v); this.syncBothAfterEdit(); },
@@ -152,7 +164,7 @@ struct DiffEditorPage {
                   onLeftEditCancel: () => { this.session.cancelSideEdit(); },
                   onRightEditCancel: () => { this.session.cancelSideEdit(); }
                 })
-              }, (p: SbsPair, i: number) => `sbs_${p.leftLineNo}_${p.leftType}_${p.rightLineNo}_${p.rightType}`)
+              }, (p: SbsPair, i: number) => `sbs_${i}_${p.leftLineNo}_${p.rightLineNo}`)
             }.alignItems(HorizontalAlign.Start)
           }.layoutWeight(1).height('100%').scrollBar(BarState.Auto)
 
@@ -201,13 +213,19 @@ struct DiffEditorPage {
     .onKeyEvent((event: Object) => {
       const kc = (event as Record<string, Object>)['keyCode'] as number;
       const kt = (event as Record<string, Object>)['type'] as number;
-      if (kt === 1 && kc === 2055) { this.session.cancelSideEdit(); this.session.hideSearch(); }
-      if (kt === 1) {
-        const ctrl = (event as Record<string, Object>)['ctrlKey'] as boolean;
-        if (ctrl && kc === 2116) { this.runDiffAndSync(); }
-        if (ctrl && kc === 2109) { this.toggleSearch(); }
+      // 仅响应 KeyUp（type===1），避免按住时重复触发
+      if (kt !== 1) return false;
+      const ctrl = (event as Record<string, Object>)['ctrlKey'] as boolean;
+      // Esc(2055)：取消编辑/关闭搜索
+      if (kc === 2055) { this.session.cancelSideEdit(); this.session.hideSearch(); return true; }
+      if (ctrl) {
+        // Ctrl+R(2116) 执行对比；Ctrl+F(2109) 搜索；Ctrl+Z(2044) 撤销；Ctrl+Y(2049) 重做
+        if (kc === 2116) { this.runDiffAndSync(); return true; }
+        if (kc === 2109) { this.toggleSearch(); return true; }
+        if (kc === 2044) { this.doUndo(); return true; }
+        if (kc === 2049) { this.doRedo(); return true; }
       }
-      return true;
+      return false;
     })
   }
 
@@ -227,7 +245,11 @@ struct DiffEditorPage {
     this.session.textA = this.textA; this.session.textB = this.textB;
     this.session.runTextDiff();
     this.syncStateFromSession();
-    if (this.session.lastError) AlertDialog.show({ title: 'Diff 执行失败', message: this.session.lastError, autoCancel: true, confirm: { value: '确定', action: () => {} } });
+    AnalyticsService.track('run_diff');
+    if (this.session.lastError) {
+      AnalyticsService.captureError('DiffEditorPage.runDiff', this.session.lastError);
+      AlertDialog.show({ title: 'Diff 执行失败', message: this.session.lastError, autoCancel: true, confirm: { value: '确定', action: () => {} } });
+    }
   }
 
   private syncStateFromSession(): void {
@@ -254,6 +276,40 @@ struct DiffEditorPage {
     this.syncStateFromSession();
   }
 
+  private doUndo(): void {
+    if (!this.session.canUndo) { this.toast('没有可撤销的操作'); return; }
+    this.session.undo();
+    this.syncBothAfterEdit();
+    AnalyticsService.track('undo');
+  }
+
+  private doRedo(): void {
+    if (!this.session.canRedo) { this.toast('没有可重做的操作'); return; }
+    this.session.redo();
+    this.syncBothAfterEdit();
+    AnalyticsService.track('redo');
+  }
+
+  /** 轻量 Toast 反馈（替代部分重型 AlertDialog） */
+  private toast(msg: string): void {
+    try { promptAction.showToast({ message: msg, duration: 2000 }); } catch (_e) { /* ignore */ }
+  }
+
+  /** 判断 picker 失败是否为用户取消（取消应静默，真实错误才提示） */
+  private isPickerCancel(err: Object): boolean {
+    const rec = err as Record<string, Object>;
+    const code = rec['code'];
+    if (code === 13900042 || code === 14000011) return true;
+    const msg = rec['message'];
+    return typeof msg === 'string' && (msg.includes('canceled') || msg.includes('Cancel') || msg.includes('取消'));
+  }
+
+  private errMsg(e: Object): string {
+    const rec = e as Record<string, Object>;
+    const msg = rec['message'];
+    return msg !== undefined ? String(msg) : String(e);
+  }
+
   private scrollToBlock(idx: number): void {
     if (idx < 0 || idx >= this.session.diffBlocks.length) return;
     this.scroller.scrollToIndex(this.session.diffBlocks[idx].startIndex, true);
@@ -269,10 +325,11 @@ struct DiffEditorPage {
   }
 
   private exportDiff(): void {
-    if (!this.session.diffResult) return;
+    if (!this.session.diffResult) { this.toast('请先执行对比'); return; }
     const t = this.session.generateUnifiedDiff();
-    if (!t) return;
-    this.session.copyToClipboard(t, (): void => { AlertDialog.show({ title: '导出成功', message: `${this.session.diffBlocks.length}个差异块 → 已复制到剪贴板`, autoCancel: true }); });
+    if (!t) { this.toast('没有可导出的差异'); return; }
+    AnalyticsService.track('export');
+    this.session.copyToClipboard(t, (): void => { this.toast(`已复制 ${this.session.diffBlocks.length} 个差异块到剪贴板`); });
   }
 
   private pickFileA(): void {
@@ -285,8 +342,8 @@ struct DiffEditorPage {
           if (r.error) AlertDialog.show({ title: '提示', message: r.error, autoCancel: true });
           if (this.session.textA.length > 0 && this.session.textB.length > 0) { this.syncSessionOptions(); this.runDiffAndSync(); }
         }
-      }).catch(() => {});
-    } catch (e) {}
+      }).catch((e: Object) => { if (!this.isPickerCancel(e)) { const m = this.errMsg(e); this.toast('打开文件A失败: ' + m); AnalyticsService.captureError('DiffEditorPage.pickFileA', m); } });
+    } catch (e) { AnalyticsService.captureException('DiffEditorPage.pickFileA', e as Object); this.toast('打开文件A失败'); }
   }
 
   private pickFileB(): void {
@@ -299,8 +356,8 @@ struct DiffEditorPage {
           if (r.error) AlertDialog.show({ title: '提示', message: r.error, autoCancel: true });
           if (this.session.textA.length > 0 && this.session.textB.length > 0) { this.syncSessionOptions(); this.runDiffAndSync(); }
         }
-      }).catch(() => {});
-    } catch (e) {}
+      }).catch((e: Object) => { if (!this.isPickerCancel(e)) { const m = this.errMsg(e); this.toast('打开文件B失败: ' + m); AnalyticsService.captureError('DiffEditorPage.pickFileB', m); } });
+    } catch (e) { AnalyticsService.captureException('DiffEditorPage.pickFileB', e as Object); this.toast('打开文件B失败'); }
   }
 
   private saveDiffToFile(): void {

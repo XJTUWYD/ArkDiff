@@ -10,7 +10,7 @@
  * 所有操作均委托 HarmonyOS Want / pasteboard API。
  */
 import { fileUri } from '@kit.CoreFileKit';
-import pasteboard from '@ohos.pasteboard';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { wantConstant, Want } from '@kit.AbilityKit';
 import { common } from '@kit.AbilityKit';
 import { IconTokens } from '../utils/ThemeTokens';

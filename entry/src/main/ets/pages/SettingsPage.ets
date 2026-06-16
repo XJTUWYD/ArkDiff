@@ -1,7 +1,8 @@
 /**
  * AegisDiff — 设置页（手机端紧凑版）
  */
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
+import { AnalyticsService } from '../services/AnalyticsService';
 
 @Entry
 @Component
@@ -12,11 +13,12 @@ struct SettingsPage {
   @StorageLink('ignoreCase') ignoreCase: boolean = false;
   @StorageLink('ignoreWhitespace') ignoreWhitespace: boolean = false;
   @StorageLink('currentBreakpoint') currentBp: string = 'sm';
+  @State statsVersion: number = 0;
 
   build() {
     Column() {
       Row() {
-        Button({ type: ButtonType.Circle }) { Text('\u2190').fontSize(18).fontColor('#333333') }
+        Button({ type: ButtonType.Circle }) { SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(18).fontColor(['#333333']) }
         .width(32).height(32).backgroundColor(Color.Transparent)
         .onClick(() => { router.back(); })
 
@@ -99,13 +101,26 @@ struct SettingsPage {
           }
           .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
         }
+
+        // 使用统计（本地透明可查，不上传）
+        ListItem() {
+          Row() {
+            Column() {
+              Text('使用统计').fontSize(14)
+              Text('本地记录，可随时查看或清除').fontSize(10).fontColor('#999').margin({ top: 2 })
+            }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+            Text(`${this.totalEventCount()} 次`).fontSize(11).fontColor('#666')
+          }
+          .width('100%').height(48).padding({ left: 12, right: 12 }).backgroundColor('#FFFFFF')
+          .onClick(() => { this.showAnalytics(); })
+        }
       }
       .width(this.isLargeScreen() ? 480 : '100%')
       .layoutWeight(1).backgroundColor('#F5F5F5')
 
       Column() {
-        Text('AegisDiff v1.1.0').fontSize(12).fontColor('#AAAAAA')
-        Text('分栏对比 · 三路合并 · 主题切换').fontSize(10).fontColor('#CCCCCC').margin({ top: 4 })
+        Text('ArkDiff v1.1.0').fontSize(12).fontColor('#AAAAAA')
+        Text('分栏对比 · 字符级差异 · 主题切换').fontSize(10).fontColor('#CCCCCC').margin({ top: 4 })
       }
       .width('100%').padding({ top: 12, bottom: 20 })
     }
@@ -114,4 +129,55 @@ struct SettingsPage {
   }
 
   private isLargeScreen(): boolean { return this.currentBp === 'lg' || this.currentBp === 'md'; }
+
+  /** 事件总次数（用于列表行展示；读取 statsVersion 以便清除后刷新） */
+  private totalEventCount(): number {
+    const _ = this.statsVersion;
+    const counts = AnalyticsService.getCounts();
+    let sum = 0;
+    const keys = Object.keys(counts);
+    for (const k of keys) sum += counts[k];
+    return sum;
+  }
+
+  /** 展示统计详情 + 最近错误，并支持清除 */
+  private showAnalytics(): void {
+    const counts = AnalyticsService.getCounts();
+    const entries: string[][] = [];
+    const keys = Object.keys(counts);
+    for (const k of keys) entries.push([k, String(counts[k])]);
+    // 按次数降序
+    entries.sort((a, b) => Number(b[1]) - Number(a[1]));
+    const top = entries.slice(0, 12);
+    const eventsText = top.length > 0
+      ? top.map(e => `• ${e[0]}: ${e[1]}`).join('\n')
+      : '暂无数据';
+
+    const errs = AnalyticsService.getErrors();
+    const errText = errs.length > 0
+      ? errs.slice(0, 5).map(e => `• [${e.scope}] ${e.message}`).join('\n')
+      : '无';
+
+    AlertDialog.show({
+      title: '使用统计（本地）',
+      message: `【功能使用】\n${eventsText}\n\n【最近错误】\n${errText}\n\n注：所有数据仅存于本机，不上传。`,
+      autoCancel: true,
+      primaryButton: {
+        value: '清除统计',
+        action: (): void => {
+          AnalyticsService.reset();
+          this.statsVersion++;
+          this.toast('已清除统计');
+        }
+      },
+      secondaryButton: {
+        value: '关闭',
+        action: (): void => {}
+      }
+    });
+  }
+
+  private toast(msg: string): void {
+    try { promptAction.showToast({ message: msg, duration: 2000 }); } catch (_e) { /* ignore */ }
+  }
 }
